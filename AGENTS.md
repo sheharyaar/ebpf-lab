@@ -41,7 +41,9 @@ Use consistent naming:
     - exit cleanly without errors
 - default to C variant unless specified
 - use CO-RE / libbpf
-- update the root README.md with the added exercise as a table entry
+- update the root README.md with the added exercise as a table entry and first-time steps for the users who are cloning the repo. (tool installation steps, vmlinux.h generation).
+- the root README.md should mention that the `main` branch consists of only the skeleton code and AGENTS.md, the solutions/answers are present in other branches.
+- add `*.o` and `.cluade/**` to the .gitignore
 
 ## Don't
 - build the entire directory

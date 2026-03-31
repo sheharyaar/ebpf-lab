@@ -13,6 +13,7 @@ executed via the `execve` syscall.
   events fire.
 - `SEC("tracepoint/syscalls/sys_enter_execve")` attaches to the `execve` system call
   entry tracepoint.
+>  You can search for tracepoints using: `sudo bpftrace -l "*exec*"` or any other pattern, if you have `bpftrace` installed.
 - `bpf_printk()` is the simplest way to emit output from an eBPF program. It writes to
   the kernel trace pipe at `/sys/kernel/debug/tracing/trace_pipe`.
 - Every eBPF program must declare a license (`SEC("license")`). GPL is required for
@@ -23,16 +24,19 @@ executed via the `execve` syscall.
 1. Use `bpf_printk()` inside the handler to print "Hello, eBPF!" each time `execve` fires.
 2. Build the program: `make hello_world/01-hello`
 3. Load and attach the program using `bpftool`:
-   ```
-   sudo bpftool prog load hello_world/01-hello/hello.bpf.o /sys/fs/bpf/hello
+   ```sh
+   # autoattach instantly attaches the ebpf program to the hook
+   sudo bpftool prog load hello_world/01-hello/hello.bpf.o /sys/fs/bpf/hello autoattach
    ```
 4. Observe the output:
-   ```
+   ```sh
    sudo cat /sys/kernel/debug/tracing/trace_pipe
+   # or
+   sudo cat /sys/kernel/tracing/trace_pipe
    ```
 5. Run some commands in another terminal to trigger `execve` events.
 6. Clean up:
-   ```
+   ```sh
    sudo rm /sys/fs/bpf/hello
    ```
 
