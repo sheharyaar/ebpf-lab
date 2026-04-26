@@ -1,3 +1,4 @@
 *.o
 .claude/**
 vmlinux.h
+*.skel.h

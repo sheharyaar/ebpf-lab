@@ -25,6 +25,7 @@ Each exercise should contain:
   - events are emitted (perf/ring buffer)
 - Makefile entry
 - README.md with the sections: `Exercise Problem`, `Theory`, `Tasks`, `Expected Results`.
+  - The theory should also compare different approaches or types wherever possible (E.g, comparing the raw_tracepoint and tracepoint, when to use what with simple examples.)
 
 Use consistent naming:
 - <exercise>.bpf.c for eBPF programs
@@ -44,6 +45,8 @@ Use consistent naming:
 - update the root README.md with the added exercise as a table entry and first-time steps for the users who are cloning the repo. (tool installation steps, vmlinux.h generation).
 - the root README.md should mention that the `main` branch consists of only the skeleton code and AGENTS.md, the solutions/answers are present in other branches.
 - add `*.o` and `.cluade/**` to the .gitignore
+- provide hints/keywords to lookup for tasks like - "Compare the attach behavior with the tracepoint from exercise 01". Without the hints the question is too vague.
+- add a further reading section for each exercise which includes at most 3 resources (docs/blogs/YT videos).
 
 ## Don't
 - build the entire directory
