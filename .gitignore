@@ -1,4 +1,8 @@
 *.o
 .claude/**
 vmlinux.h
-*.skel.h
+*.skel.h.alvar/
+.alvar/
+old.dump
+__pycache__/
+dossier/program/maps/02-hash-map/hashmap
