@@ -1,0 +1,5 @@
+# A sign-extending load (version 4 of the instruction set, Linux 6.6).
+b7 01 00 00 ff 00 00 00   # r1 = 0xff
+73 1a f8 ff 00 00 00 00   # *(u8 *)(r10 - 8) = w1
+91 a0 f8 ff 00 00 00 00   # r0 = *(s8 *)(r10 - 8)
+95 00 00 00 00 00 00 00   # exit

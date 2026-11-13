@@ -1,0 +1,4 @@
+# Reading r1 after a call, which leaves r1 to r5 unreadable.
+85 00 00 00 07 00 00 00   # call 7, bpf_get_prandom_u32
+bf 10 00 00 00 00 00 00   # r0 = r1
+95 00 00 00 00 00 00 00   # exit

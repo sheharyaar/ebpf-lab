@@ -1,0 +1,3 @@
+# r0 = 1 with the immediate's bytes written in big-endian order.
+b7 00 00 00 00 00 00 01   # meant r0 = 1; read little-endian, imm is 0x01000000
+95 00 00 00 00 00 00 00   # exit

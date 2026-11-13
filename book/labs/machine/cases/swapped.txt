@@ -1,0 +1,4 @@
+# r1 = 1 with the register byte in the order of the RFC's big-endian example.
+b7 10 00 00 01 00 00 00   # meant r1 = 1; read as dst r0, src r1
+b7 00 00 00 00 00 00 00   # r0 = 0
+95 00 00 00 00 00 00 00   # exit

@@ -1,0 +1,3 @@
+# A helper the kernel knows, called from a program whose hook does not offer it.
+85 00 00 00 3a 00 00 00   # call 58, bpf_override_return
+95 00 00 00 00 00 00 00   # exit

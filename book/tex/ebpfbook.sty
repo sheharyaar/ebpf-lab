@@ -1,0 +1,321 @@
+% ebpfbook.sty: the printed book in the O'Reilly house format, measured from a current O'Reilly title
+% (Designing Distributed Systems, 2018: Antenna House output, 7 x 9.19 in, Minion Pro 10.5/12.6, Myriad Pro
+% Semibold Condensed headings, Ubuntu Mono code). Free stand-ins: Crimson Pro for Minion, Open Sans Condensed
+% for Myriad Condensed; Ubuntu Mono is the real code face. Sizes are set so the printed x-heights match.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ebpfbook}[2026/11/12 O'Reilly format]
+
+% ---------------------------------------------------------------- page: 7 x 9.19 in, 1 in side margins, 127 mm column
+\RequirePackage[paperwidth=177.8mm,paperheight=233.4mm,top=20mm,bottom=25mm,inner=25.4mm,textwidth=127mm,
+  headheight=0pt,headsep=0pt,footskip=12mm]{geometry}
+\RequirePackage[english]{babel}
+\RequirePackage{fontspec}
+\RequirePackage[protrusion=true,expansion=true,tracking=true]{microtype}
+\RequirePackage[table]{xcolor}
+\RequirePackage{graphicx,tikz,enumitem,fancyhdr,needspace,booktabs,tabularx,array,calc}
+\RequirePackage[strict]{changepage}
+\RequirePackage{fvextra}
+\RequirePackage[most]{tcolorbox}
+\RequirePackage{qrcode}
+\RequirePackage[hidelinks]{hyperref}
+
+% ---------------------------------------------------------------- type
+% body: Crimson Pro 10.8/12.9 (x-height 0.419 em = 1.60 mm, as Minion 10.5 in the O'Reilly book: 1.61 mm)
+% characters Crimson Pro and Ubuntu Mono lack (Greek, arrows, set symbols, the non-breaking hyphen) come from fallbacks
+\directlua{luaotfload.add_fallback("ebserif", {"LibertinusSerif-Regular.otf:mode=node;", "DejaVuSerif.ttf:mode=node;"})
+  luaotfload.add_fallback("ebmono", {"DejaVuSansMono.ttf:mode=node;"})}
+\setmainfont{CrimsonPro}[RawFeature={fallback=ebserif},Extension=.ttf,UprightFont=*-Regular,BoldFont=*-SemiBold,ItalicFont=*-Italic,
+  BoldItalicFont=*-SemiBoldItalic,Numbers=Lining]
+% headings: Open Sans Condensed SemiBold, sized so its x-height (0.536 em) matches Myriad Pro's (0.484 em)
+\newfontfamily\hfont{OpenSans-Condensed}[Path=/usr/share/fonts/TTF/,Extension=.ttf,UprightFont=*SemiBold,
+  BoldFont=*Bold,ItalicFont=*SemiBoldItalic]
+\newfontfamily\hfontlight{OpenSans-Condensed}[Path=/usr/share/fonts/TTF/,Extension=.ttf,UprightFont=*Regular]
+% code: Ubuntu Mono, lowercase matched to the body for inline code
+\setmonofont{UbuntuMono}[Path=fonts/,Extension=.ttf,UprightFont=*-Regular,BoldFont=*-Bold,ItalicFont=*-Italic,
+  Scale=MatchLowercase,HyphenChar=None,RawFeature={fallback=ebmono}]
+\newcommand\allsc[1]{#1}
+% spaces inside inline code stretch a little, so that a paragraph with long log messages can still be justified
+\newcommand\code[1]{\texttt{\spaceskip=\fontdimen2\font plus .33\fontdimen2\font minus .25\fontdimen2\font\relax #1}}
+% a hyphen that starts an option or a negative value (-EACCES, --force) never ends a line: html2tex sets it as \codehy;
+% the converter puts \allowbreak after / _ . , : ( = instead
+\DeclareRobustCommand\codehy{\mbox{-}}\AtBeginDocument{\pdfstringdefDisableCommands{\def\codehy{-}}}
+
+% ---------------------------------------------------------------- colour: O'Reilly prints the text in black
+\definecolor{ink}{HTML}{000000}\definecolor{ink2}{HTML}{2A2A2A}\definecolor{mut}{HTML}{555555}
+\definecolor{line}{HTML}{BBBBBB}\definecolor{rule}{HTML}{777777}\definecolor{paper2}{HTML}{F2F2F2}
+\colorlet{accent}{ink}\colorlet{accentx}{ink}\colorlet{tealx}{ink2}\colorlet{purplex}{ink2}\colorlet{coralx}{ink2}
+\colorlet{amberx}{ink2}\colorlet{greenx}{ink2}\colorlet{grayx}{ink2}\definecolor{amberl}{HTML}{E8E8E8}
+
+% ---------------------------------------------------------------- paragraphs: no indent, 6 pt apart (as measured)
+\renewcommand\normalsize{\fontsize{10.8}{12.9}\selectfont}
+\AtBeginDocument{\normalsize\color{ink}}
+\setlength\parindent{0pt}\setlength\parskip{6pt plus 1pt minus .5pt}
+\clubpenalty=10000 \widowpenalty=10000 \displaywidowpenalty=10000
+\raggedbottom                       % no stretched gaps between sections to fill a page
+\setlength\emergencystretch{1.5em}
+\renewcommand\topfraction{.85}\renewcommand\bottomfraction{.6}\renewcommand\textfraction{.12}\renewcommand\floatpagefraction{.75}
+\setcounter{topnumber}{2}\setcounter{bottomnumber}{1}\setcounter{totalnumber}{3}
+\setlength\floatsep{12pt plus 2pt}\setlength\textfloatsep{14pt plus 2pt}\setlength\intextsep{12pt plus 2pt}
+\strictpagecheck
+
+% ---------------------------------------------------------------- folios at the foot, as O'Reilly sets them:
+%   left pages  "14 | Chapter 2: The Sidecar Pattern"      right pages  "Section title | 15"
+\newcommand\chapterlabel{}\newcommand\chaptertitle{}
+\newcommand\footfont{\hfont\fontsize{8}{10}\selectfont\color{ink}}
+\newcommand\footbar{\hspace{.9em}|\hspace{.9em}}
+\pagestyle{fancy}\fancyhf{}\renewcommand\headrulewidth{0pt}
+\fancyfoot[LE]{\footfont\thepage\footbar\chapterlabel\ifx\chaptertitle\@empty\else: \chaptertitle\fi}
+\fancyfoot[RO]{\footfont\rightmark\footbar\thepage}
+\fancypagestyle{opening}{\fancyhf{}\fancyfoot[RO,LE]{\footfont\thepage}}
+
+% ---------------------------------------------------------------- the chapter opener: label, rule, title, right aligned
+% \chaptertarget{id}\chapteropen{eyebrow}{title}{plain title}{lede}: the id is the target of links to the chapter
+\newcommand\cbchapterid{}
+\newcommand\chaptertarget[1]{\gdef\cbchapterid{#1}}
+\newcommand\chapteropen[4]{%
+  \openpage\thispagestyle{opening}\gdef\chapterlabel{#1}\gdef\chaptertitle{#3}\markright{#3}%
+  \vspace*{14mm}%
+  {\raggedleft\hfont\fontsize{13}{15}\selectfont\ifx\cbchapterid\empty\else\hypertarget{\cbchapterid}{}\fi\MakeUppercase{#1}\par}\vspace{1.2mm}
+  {\color{ink}\hrule height .6pt}\vspace{2.4mm}
+  {\raggedleft\hfont\fontsize{23}{27}\selectfont\chaptermarks{#2}{#3}#2\par}\vspace{12mm}
+  {\fontsize{11.4}{15}\selectfont\itshape\color{ink2}\raggedright #4\par}}
+\newcommand\chapterbody{\par\vspace{4mm}\suppressfloats[t]}
+\newlength\ribw
+\newenvironment{ribbon}[1]{\par\vspace{4mm}\setlength\ribw{\dimexpr\linewidth/#1\relax}%
+  \noindent\begin{tikzpicture}[x=1mm,y=1mm,trim left=0pt,trim right=\linewidth]}{\end{tikzpicture}\par}   % the stroke ends
+% (half a line width past each end, which PGF counts) do not widen the box: the ribbon is exactly the text width
+% \ribbonitem{index}{here: 1 or 0}{year}{label}
+\newcommand\ribbonitem[4]{%
+  \pgfmathsetmacro\rx{#1*\ribw/1mm}\pgfmathsetmacro\rw{\ribw/1mm}%
+  \ifnum#2=1
+    \draw[ink,line width=1.6pt] (\rx,0) -- ++(\rw,0);
+    \fill[ink] (\rx+0.9,0) circle (0.9);
+    \node[anchor=north west,inner sep=0,text width=\rw mm-0.8mm,align=left,execute at begin node={\hyphenpenalty=10000 \exhyphenpenalty=10000 },font=\hfont\fontsize{6.6}{7.6}\selectfont,text=ink] at (\rx,-2.2) {#3\\#4};
+  \else
+    \draw[rule,line width=.5pt] (\rx,0) -- ++(\rw,0);
+    \filldraw[fill=white,draw=rule,line width=.5pt] (\rx+0.9,0) circle (0.9);
+    \node[anchor=north west,inner sep=0,text width=\rw mm-0.8mm,align=left,execute at begin node={\hyphenpenalty=10000 \exhyphenpenalty=10000 },font=\hfontlight\fontsize{6.6}{7.6}\selectfont,text=mut] at (\rx,-2.2) {#3\\#4};
+  \fi}
+\newenvironment{inthis}{\par\vspace{2mm}\fontsize{10}{12.4}\selectfont\color{ink2}%
+  \begin{itemize}[leftmargin=5mm,nosep,itemsep=.6mm,label=\textbullet]}{\end{itemize}}
+\newcommand\spine[1]{\par\vspace{1mm}{\fontsize{10}{12.4}\selectfont\itshape\color{ink2}\raggedright #1\par}}
+\newcommand\chmeta[1]{\par{\hfont\fontsize{8}{10}\selectfont\color{mut}\MakeUppercase{#1}}\par}
+
+% ---------------------------------------------------------------- section headings (O'Reilly sect1: 18.9 pt Myriad
+% Semibold Condensed, about 30 pt baseline to baseline above and 20 pt below)
+% \booksection[plain title for the bookmark]{title}: a contents line and a bookmark; \closingsection: the same look, neither
+% \sectiontarget{id} before a heading makes it the target of links and of \pageref*{id} ("Title" on page 136)
+\newcommand\cbsecid{}
+\newcommand\sectiontarget[1]{\gdef\cbsecid{#1}}
+\newcommand\cbsectarget{\ifx\cbsecid\empty\else\hypertarget{\cbsecid}{}\label{\cbsecid}\gdef\cbsecid{}\fi}
+\newcommand\booksection[2][]{\par\Needspace{5\baselineskip}\addvspace{5pt plus 1pt}\markright{#2}%
+  {\raggedright\hfont\fontsize{17}{19.5}\selectfont\sectionmarks{\if\relax\detokenize{#1}\relax#2\else#1\fi}{#2}\cbsectarget#2\par}\nobreak\vspace{1pt}\nobreak}
+\newcommand\closingsection[1]{\par\Needspace{5\baselineskip}\addvspace{5pt plus 1pt}\markright{#1}%
+  {\raggedright\hfont\fontsize{17}{19.5}\selectfont\leavevmode\cbsectarget#1\par}\nobreak\vspace{1pt}\nobreak}
+\newcommand\boxhead[1]{\par\Needspace{3\baselineskip}{\hfont\fontsize{10.4}{12.4}\selectfont\leavevmode\cbsectarget#1\par}\nobreak}
+
+% ---------------------------------------------------------------- notes: O'Reilly sets them indented with an icon
+% in the space at the left; here a word stands in for the icon
+\newenvironment{oreillynote}{\par\addvspace{4pt}\begin{adjustwidth}{17mm}{0mm}\fontsize{9.8}{12}\selectfont\setlength\parskip{4pt}%
+  \noindent\llap{\smash{\raisebox{-.2ex}{\hfont\fontsize{8}{9}\selectfont\color{mut}NOTE}}\hspace{6mm}}\ignorespaces}
+  {\par\end{adjustwidth}\addvspace{4pt}}
+\newcommand\sidenote[2]{\begin{oreillynote}\if\relax\detokenize{#1}\relax\else{\bfseries #1.}\enspace\fi #2\end{oreillynote}}
+
+% ---------------------------------------------------------------- figures: the text width, italic caption below
+\newcommand\figimage[2]{\par\noindent\makebox[\linewidth][c]{\includegraphics[width=#2]{#1}}\par}
+\newcommand\figcap[2]{\par\vspace{3pt}{\fontsize{10.4}{12.6}\selectfont\itshape\raggedright\noindent #1.\enspace #2\par}}
+% a figure that is a table or a listing: \figcapsave{number}{caption} sets the caption aside, \begin{fitbody} ...
+% \end{fitbody} sets the body and shrinks it if body and caption together are taller than the text block (as
+% html2tex.py scales drawings), then \usebox\cbcapbox puts the caption under it
+\newsavebox\cbcapbox\newsavebox\cbfigbox\newlength\cbroom\newlength\cbfight
+\newcommand\figcapsave[2]{\sbox\cbcapbox{\parbox{\linewidth}{\figcap{#1}{#2}}}}
+\newenvironment{fitbody}{\par\begin{lrbox}{\cbfigbox}\begin{minipage}{\linewidth}}{\end{minipage}\end{lrbox}%
+  \setlength\cbroom{\dimexpr\textheight-\ht\cbcapbox-\dp\cbcapbox-2pt\relax}%
+  \setlength\cbfight{\dimexpr\ht\cbfigbox+\dp\cbfigbox\relax}%
+  \noindent\ifdim\cbfight>\cbroom
+    \PackageInfo{ebpfbook}{figure shrunk to \the\cbroom\space from \the\cbfight}%
+    \makebox[\linewidth][c]{\resizebox*{!}{\cbroom}{\usebox\cbfigbox}}%
+  \else\usebox\cbfigbox\fi\par}
+
+% ---------------------------------------------------------------- code: Ubuntu Mono 8.5/10.2 pt, no shading, indented 6 mm
+% (MatchLowercase scales Ubuntu Mono by 0.806, so 10.55 pt asks for 8.5 pt)
+\newtcolorbox{codeboxlong}{breakable,enhanced,frame hidden,colback=white,sharp corners,boxsep=0pt,
+  left=6mm,right=0mm,top=1mm,bottom=1mm,before skip=4pt,after skip=6pt}
+\newtcolorbox{codebox}{enhanced,frame hidden,colback=white,sharp corners,boxsep=0pt,
+  left=6mm,right=0mm,top=1mm,bottom=1mm,before skip=4pt,after skip=6pt}
+\fvset{fontsize=\fontsize{10.55}{10.2}\selectfont,breaklines=true,breaksymbolleft={},breakindent=2em,
+  breakafter={/=,},breakaftersymbolpre={}}   % a long URL or verifier state breaks after / = or , rather than run off the page
+\newcommand\hl[1]{\textbf{#1}}
+% \begin{booktable}{column spec}: the converter sizes each X column by its content
+\newenvironment{booktable}[1]{\par\fontsize{9.6}{11.6}\selectfont\noindent\tabularx{\linewidth}{#1}\toprule}
+  {\bottomrule\endtabularx\par}
+\newcommand\thead[1]{{\hfont #1}}
+\newcommand\rowrule{\arrayrulecolor{line}\specialrule{.3pt}{.6mm}{.6mm}\arrayrulecolor{black}}
+
+% ---------------------------------------------------------------- sidebars (what it costs, read with, labs): a ruled box
+% a box that breaks across pages is closed on both sides of the break: the enhanced skin leaves those edges open
+\def\sidebartoprule{\draw[ink,line width=.5pt]([yshift=-.25pt]frame.north west)--([yshift=-.25pt]frame.north east);}
+\def\sidebarbottomrule{\draw[ink,line width=.5pt]([yshift=.25pt]frame.south west)--([yshift=.25pt]frame.south east);}
+\newtcolorbox{sidebar}[1]{breakable,enhanced,colback=white,colframe=ink,boxrule=.5pt,sharp corners,
+  overlay first=\sidebarbottomrule,overlay middle={\sidebartoprule\sidebarbottomrule},overlay last=\sidebartoprule,
+  left=4mm,right=4mm,top=3mm,bottom=3mm,before skip=10pt,after skip=10pt,
+  fontupper=\fontsize{9.8}{12}\selectfont,before upper={\setlength\parskip{4pt}{\hfont\fontsize{11}{13}\selectfont #1\par}\vspace{1pt}}}
+\setlist{nosep}
+\setlist[enumerate]{leftmargin=6mm,itemsep=3pt,topsep=2pt}
+\setlist[itemize]{leftmargin=6mm,itemsep=3pt,topsep=2pt}
+\newlist{wordlist}{description}{1}
+% a term set over two lines is taller than a one-line definition: the label align records how many lines the term
+% took and \wordend (after each definition) adds the missing lines, so that an entry is as tall as its taller side
+\newcount\wordlines
+\SetLabelAlign{wordterm}{\nobreak\strut\smash{\parbox[t]\labelwidth{\raggedright#1\endgraf\global\wordlines=\prevgraf}}}
+\newcommand\wordend{\par\ifnum\prevgraf<\wordlines\vspace{\dimexpr\numexpr\wordlines-\prevgraf\relax\baselineskip\relax}\fi\global\wordlines=0 }
+\setlist[wordlist]{style=multiline,align=wordterm,leftmargin=34mm,labelwidth=32mm,labelsep=2mm,font=\bfseries\raggedright,itemsep=2pt}
+\newlist{costlist}{description}{1}
+\setlist[costlist]{style=multiline,align=wordterm,leftmargin=23mm,labelwidth=21mm,labelsep=2mm,font=\hfont\fontsize{9}{11}\selectfont,itemsep=2pt}
+\newsavebox\refqrbox
+% \refitem{qr code}{text}: one reference, its QR code at the right of the column, top level with the first line
+\newcommand\refitem[2]{\par\addvspace{2pt}\noindent\sbox\refqrbox{#1}%
+  \parbox[t]{\dimexpr\linewidth-\wd\refqrbox-5mm}{\raggedright #2}\hfill
+  \raisebox{\dimexpr\ht\strutbox-\ht\refqrbox}{\usebox\refqrbox}\par}
+\newcommand\costrule[1]{\par{\itshape #1}\par}
+% \labneed{title}{meta line}, before a lab: the title, the meta line and the first two lines of the Task go on one page
+\newsavebox\labneedbox
+\newcommand\labneed[2]{\par\sbox\labneedbox{\parbox{\dimexpr\linewidth-8mm-1pt\relax}{\fontsize{9.8}{12}\selectfont
+  \setlength\parskip{4pt}{\hfont\fontsize{11}{13}\selectfont #1\par}\vspace{1pt}\labmeta{#2}\strut\par\strut}}%
+  \Needspace{\dimexpr\ht\labneedbox+\dp\labneedbox+10pt+6mm+1pt+4pt\relax}}   % before skip, top and bottom, rules, slack
+\newcommand\labmeta[1]{\par{\hfontlight\fontsize{8.4}{10.4}\selectfont\color{mut}#1}\par}
+\newcommand\labnote[1]{\par{\fontsize{9.4}{11.6}\selectfont\itshape\color{mut}#1}\par}
+\newcommand\layertag[2]{{\hfont\fontsize{7.6}{9}\selectfont\color{mut}\MakeUppercase{#2}}\hspace{1.6mm}}
+\newenvironment{hint}[1]{\par\addvspace{2pt}\Needspace{3\baselineskip}\noindent{\hfont\fontsize{9}{11}\selectfont #1}\par\nobreak
+  \setlength\leftskip{4mm}\setlength\parskip{2pt}}{\par}
+\newenvironment{field}{\par\addvspace{6pt}\begin{adjustwidth}{10mm}{10mm}\itshape\color{ink2}\raggedright\noindent\ignorespaces}
+  {\end{adjustwidth}\addvspace{6pt}}
+\newcommand\fieldcite[1]{\par\vspace{2pt}{\raggedleft\upshape\hfontlight\fontsize{8.6}{10.6}\selectfont\color{mut}\textemdash\,#1\par}}
+
+% ---------------------------------------------------------------- back matter
+\newcommand\backmatterhead[1]{\openpage\thispagestyle{opening}\gdef\chapterlabel{#1}\gdef\chaptertitle{}\markright{#1}%
+  \vspace*{14mm}{\color{ink}\hrule height .6pt}\vspace{2.4mm}%
+  {\raggedleft\hfont\fontsize{23}{27}\selectfont\openermarks{}{#1}{#1}#1\par}\vspace{10mm}}
+\newcommand\keychapter[1]{\par\Needspace{5\baselineskip}\addvspace{8pt}{\hfont\fontsize{14.2}{16.5}\selectfont #1\par}\nobreak}
+\newenvironment{answer}[1]{\par\addvspace{2pt}
+  \begin{list}{}{\leftmargin=12mm\labelwidth=11mm\labelsep=1mm\itemsep=0pt\parsep=4pt\topsep=0pt}
+  \item[{\hfont #1\hfill}]}{\end{list}\par}
+\newenvironment{solution}[1]{\par\addvspace{4pt}%
+  \begin{adjustwidth}{12mm}{0mm}\setlength\parskip{4pt}\tcbset{before skip=2pt}%
+  \noindent\hspace*{-12mm}{\hfont #1}\par\nobreak}
+  {\end{adjustwidth}\par}
+\newcommand\ansnum[1]{}
+
+% ---------------------------------------------------------------- the whole book: contents, parts, title pages, appendices
+% (sample.tex uses openany and none of these but the contents lines, which go nowhere without \booktoc)
+\makeatletter
+\newcommand\openpage{\if@openright\cleardoublepage\else\clearpage\fi}
+% a page left blank so that the next opener falls on a right-hand page carries no folio
+\def\cleardoublepage{\clearpage\if@twoside\ifodd\c@page\else\hbox{}\thispagestyle{empty}\newpage\fi\fi}
+\hypersetup{bookmarksopen=true,bookmarksopenlevel=0,bookmarksdepth=3}
+\newcounter{cbbm}
+% a bookmark, and a link target toc.N for the contents line that follows it
+\newcommand\cb@bookmark[2]{\stepcounter{cbbm}\pdfbookmark[#1]{#2}{cbbm.\the\c@cbbm}\hypertarget{toc.\the\c@cbbm}{}}
+% one line in the contents; the page number is taken when the page is shipped out; the line links to its target
+\newcommand\cb@toc[2]{\begingroup\edef\x{\endgroup\noexpand\addtocontents{toc}{\noexpand\protect\noexpand\cbtoclink{toc.\the\c@cbbm}%
+  \noexpand\protect\unexpanded{#1}\unexpanded\expandafter{#2}{\noexpand\thepage}}}\x}
+\def\cb@lk{}
+\newcommand\cbtoclink[1]{\gdef\cb@lk{#1}}
+\newcommand\cb@L[1]{\ifx\cb@lk\@empty#1\else\hyperlink{\cb@lk}{#1}\fi}
+\def\cb@num{}\def\cb@kind{ebchap}\def\cb@seclevel{2}\def\cb@ebtop{ebtop}
+% \chaptocinfo{number in the contents}{ebtop: outside any part, ebchap: in a part}, before \chapteropen
+\newcommand\chaptocinfo[2]{\gdef\cb@num{#1}\gdef\cb@kind{#2}}
+\newcommand\chaptermarks[2]{\leavevmode
+  \ifx\cb@kind\cb@ebtop\def\cb@lvl{0}\gdef\cb@seclevel{1}\else\def\cb@lvl{1}\gdef\cb@seclevel{2}\fi
+  \cb@bookmark{\cb@lvl}{\cb@num\space#2}%
+  \begingroup\edef\x{\endgroup\noexpand\cb@toc{\noexpand\tocchapter}{{\unexpanded\expandafter{\cb@num}}{\unexpanded{#1}}}}\x}
+\newcommand\sectionmarks[2]{\leavevmode\cb@bookmark{\cb@seclevel}{#1}\cb@toc{\tocsection}{{#2}}}
+% \openermarks{number}{contents title}{bookmark}: an opener outside the chapters (how to read, appendices, glossary)
+\newcommand\openermarks[3]{\leavevmode\cb@bookmark{0}{#3}\gdef\cb@seclevel{1}\cb@toc{\tocchapter}{{#1}{#2}}}
+
+% the contents, as O'Reilly sets them: chapter lines in the heading face with leaders, section lines in the body
+% face with the page number and no leaders, part lines under a thin rule (sizes measured, heading face x 0.9)
+\newlength\tocnumw\setlength\tocnumw{17.5pt}  % the box the chapter number is set in, right aligned
+\newlength\tocpnw\setlength\tocpnw{2.4em}
+\newcommand\tocleaders{\leaders\hbox to 4.05pt{\hss.\hss}\hfill}
+\newcommand\tocchapter[3]{\par\addvspace{11pt}%
+  {\hfont\fontsize{10.8}{13}\selectfont\leftskip\tocnumw\rightskip=\dimexpr\tocpnw\relax plus 1fil\parfillskip-\tocpnw\relax
+   \noindent\if\relax\detokenize{#1}\relax\hskip-\tocnumw
+   \else\sbox0{#1\hspace{4.1pt}}\ifdim\wd0>\tocnumw\hskip-\tocnumw\box0 \else\llap{\box0}\fi\fi
+   \cb@L{#2\nobreak\tocleaders\nobreak\makebox[\tocpnw][r]{#3}}\par}\nobreak}
+\newcommand\tocsection[2]{\par{\fontsize{10.8}{12.9}\selectfont\leftskip\tocnumw\rightskip=\dimexpr\tocpnw\relax plus 1fil
+  \parfillskip-\tocpnw\relax\hangindent1em\hangafter1\noindent\cb@L{#1\nobreak\hfill\nobreak\makebox[\tocpnw][r]{#2}}\par}}
+\newcommand\tocpart[3]{\par\vskip\dimexpr 20pt-\prevdepth\relax{\color{ink}\hrule height .25pt}\nointerlineskip
+  \vbox to 14.5pt{\vfil\hbox{\hfont\fontsize{12.6}{15}\selectfont\cb@L{#1\hspace{10.6pt}#2}}}\nobreak}
+\newcommand\booktoc{\openpage\thispagestyle{opening}\gdef\chapterlabel{Table of Contents}\gdef\chaptertitle{}%
+  \markright{Table of Contents}\vspace*{14mm}{\color{ink}\hrule height .6pt}\vspace{2.4mm}%
+  {\raggedleft\hfont\fontsize{23}{27}\selectfont\leavevmode\cb@bookmark{0}{Table of Contents}Table of Contents\par}\vspace{10mm}%
+  {\setlength\parskip{0pt}\@starttoc{toc}}}
+
+% title page (O'Reilly: a 0.25 pt rule 2 in from the top, the title 30 pt under it, the subtitle in semibold
+% italic, the author line 403 pt from the top; all right aligned) and the edition page on its back
+\newcommand\booktitlepage[3]{\cleardoublepage\thispagestyle{empty}%
+  \begin{tikzpicture}[remember picture,overlay,x=1pt,y=1pt]
+  \draw[ink,line width=.25pt] ([xshift=72pt,yshift=-144.1pt]current page.north west) -- ++(360,0);
+  \node[anchor=base east,inner sep=0,font=\hfont\fontsize{28.4}{32}\selectfont]
+    at ([xshift=432pt,yshift=-174.3pt]current page.north west) {#1};
+  \node[anchor=north east,inner sep=0,text width=360pt,align=right,font=\fontsize{18.5}{21.6}\selectfont\bfseries\itshape]
+    at ([xshift=432pt,yshift=-182pt]current page.north west) {#2};
+  \node[anchor=base east,inner sep=0,font=\fontsize{16.5}{19}\selectfont\bfseries\itshape]
+    at ([xshift=432pt,yshift=-403.4pt]current page.north west) {#3};
+  \end{tikzpicture}\null\clearpage}
+\newcommand\editionpage[3]{\thispagestyle{empty}{\setlength\parskip{5pt}\raggedright
+  {\hfont\fontsize{9}{11}\selectfont #1\par}\fontsize{8.75}{10.5}\selectfont #2\par #3\par}\clearpage}
+
+% part page: label, rule and title as a chapter opener, the introduction from 43 % of the page height, no folio
+% \partpage[title for the bookmark]{label}{title}{introduction}: the title may tie its last two words with ~, the
+% bookmark takes plain text (without the optional argument the title is used)
+\newcommand\partpage[4][]{\openpage\thispagestyle{empty}\gdef\cb@kind{ebchap}%
+  \vspace*{14mm}%
+  {\raggedleft\hfont\fontsize{13}{15}\selectfont\MakeUppercase{#2}\par}\vspace{1.2mm}
+  {\color{ink}\hrule height .6pt}\vspace{2.4mm}
+  {\raggedleft\hfont\fontsize{23}{27}\selectfont\leavevmode\cb@bookmark{0}{#2. \if\relax\detokenize{#1}\relax#3\else#1\fi}%
+   \cb@toc{\tocpart}{{#2.}{#3}}#3\par}
+  \vspace{\dimexpr 80.9mm-\pagetotal-\topskip\relax}{\raggedright #4\par}\clearpage}
+
+% appendices open as chapters do, with APPENDIX A as the label; \appendixopen[title for the bookmark]{letter}{title}
+\newcommand\appendixopen[3][]{\openpage\thispagestyle{opening}\gdef\chapterlabel{Appendix #2}\gdef\chaptertitle{#3}\markright{#3}%
+  \vspace*{14mm}%
+  {\raggedleft\hfont\fontsize{13}{15}\selectfont APPENDIX #2\par}\vspace{1.2mm}
+  {\color{ink}\hrule height .6pt}\vspace{2.4mm}
+  {\raggedleft\hfont\fontsize{23}{27}\selectfont\openermarks{#2.}{#3}{#2. \if\relax\detokenize{#1}\relax#3\else#1\fi}#3\par}\vspace{10mm}}
+
+% the lineage in commits: \commitentry{qr codes}{heading}{chapters}{sha and meta lines}{note}, never broken across pages
+\newsavebox\cqbox
+\newcommand\commitqr[2]{\sbox0{#1}\vtop{\vskip0pt\hbox{\usebox0}\vskip1.5pt
+  \hbox to\wd0{\hss\hfontlight\fontsize{7}{8}\selectfont\color{mut}#2\hss}}}
+\newcommand\commitsha[1]{\par{\fontsize{9.8}{12}\selectfont #1\par}}
+\newcommand\commitmeta[1]{\par{\hfontlight\fontsize{8.4}{10.4}\selectfont\color{mut}#1\par}}
+\newcommand\commitentry[5]{\par\addvspace{9pt}\sbox\cqbox{#1}\noindent
+  \parbox[t]{\dimexpr\linewidth-\wd\cqbox-5mm}{\setlength\parskip{2pt}\raggedright
+    {\hfont\fontsize{10.4}{12.4}\selectfont\rightskip=0pt plus 2em #2\unskip\nobreak\hfil\penalty50\hskip3mm\hbox{}\nobreak
+     \hfil\mbox{\color{mut}#3}{\parfillskip=0pt\finalhyphendemerits=0\par}}#4\par{\setlength\parskip{0pt}#5\par}}%
+  \hfill\raisebox{7.4pt}{\usebox\cqbox}\par}
+
+% ---------------------------------------------------------------- the index (O'Reilly: two columns, letter groups)
+% html2tex.py puts \ixm{N} after each indexed word; N and the page go to \jobname.ixw, and html2tex.py --index
+% makes \jobname.ind from them (see book.tex)
+\newwrite\cb@ixw
+\AtBeginDocument{\immediate\openout\cb@ixw=\jobname.ixw\relax}
+\newcommand\ixm[1]{\write\cb@ixw{#1 \thepage}}
+\RequirePackage{multicol}
+\newcommand\indexgroup[1]{\par\addvspace{9pt plus 2pt}{\hfont\fontsize{11}{13}\selectfont #1\par}\nobreak\vspace{2pt}\nobreak}
+\renewenvironment{theindex}{\setlength\columnsep{6mm}\begin{multicols}{2}\fontsize{9}{11}\selectfont
+  \setlength\parskip{0pt}\setlength\parindent{0pt}\raggedright\let\item\cb@idxitem\let\subitem\cb@idxsubitem
+  \let\subsubitem\cb@idxsubsubitem\let\indexspace\relax}{\end{multicols}}
+\def\cb@idxitem{\par\hangindent 2.4em\hangafter1 }
+\def\cb@idxsubitem{\par\hangindent 3.6em\hangafter1 \hspace*{1.2em}}
+\def\cb@idxsubsubitem{\par\hangindent 4.8em\hangafter1 \hspace*{2.4em}}
+\newcommand\printbookindex{\backmatterhead{Index}\IfFileExists{\jobname.ind}{\input{\jobname.ind}}%
+  {\textit{The index is made between two LuaLaTeX runs: python3 -I html2tex.py -{}-index.}}}
+
+% a figure with nothing printable: a box with its id, so that it is not lost silently
+\newcommand\figplaceholder[1]{\par\noindent\fcolorbox{rule}{white}{\parbox[c][28mm][c]{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{\centering
+  \hfont\fontsize{9}{11}\selectfont\color{mut}NOT DRAWN FOR PRINT\\[2pt]\hfontlight #1}}\par}
+\makeatother
+\endinput

@@ -1,0 +1,112 @@
+From 4529a14aebdafd15bbadd92c4791c167df05dc05 Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 06:04:11 +0530
+Subject: [PATCH bpf-next 0/8] bpf: Add a count-min sketch map type
+
+A program that counts events per key in a hash map needs an entry for
+every key. When keys come and go without end, as thread IDs, flows or
+addresses do, a hash fills and refuses new keys with -E2BIG, and an LRU
+hash keeps the keys used most recently rather than the largest counts.
+
+This series adds BPF_MAP_TYPE_COUNT_MIN, a count-min sketch (Cormode
+and Muthukrishnan, "An improved data stream summary: the count-min
+sketch and its applications", J. Algorithms 55(1), 2005): approximate
+counts for any number of keys in 8 * width * depth bytes fixed at
+creation. An estimate is never below the true count and, with
+probability 1 - delta, exceeds it by at most epsilon times the total,
+for width = ceil(e / epsilon) and depth = ceil(ln(1 / delta)).
+
+The map follows the bloom filter. It is keyless; a value is a key
+followed by a u64 count; bpf_map_push_elem() adds the count to the key
+and bpf_map_peek_elem() returns the estimate. From user space,
+BPF_MAP_UPDATE_ELEM pushes and BPF_MAP_LOOKUP_ELEM writes the estimate
+into the value's count. max_entries is the width and the lower 4 bits
+of map_extra the depth.
+
+Patches 1 and 2 let a bloom filter peek a value on the stack, which the
+stack liveness of v7.2 refuses ("slot poisoned by dead code
+elimination"). Mainline fixed this in commit 830e4372de5c ("bpf:
+Describe helper stack accesses with arg_access_info"); on bpf-next they
+would be dropped and patch 3 would add its map type to that function.
+Patch 3 adds the map, patch 4 documents it, patches 5 and 6 teach
+libbpf and bpftool its name, patch 7 adds tests and patch 8 a
+benchmark.
+
+Numbers from an x86-64 VM with 16 CPUs (AMD Ryzen 7 8845HS, SRSO
+mitigation "Safe RET"), the series on v7.2 with lock debugging off:
+
+  bench, 100,000 keys, M ops/s per producer   1 producer   8 producers
+  count-min-push (width 2719, depth 5)           47.3          19.3
+  count-min-peek                                 48.2          42.1
+  count-min-hash (lookup, add, insert once)      37.6          31.4
+  count-min-lru                                  36.4          31.3
+  bloom-update (5 hashes)                        19.6           7.4
+
+A write counter keyed by thread ID at fentry/vfs_write, one writer,
+ns per run: hash 89.5, LRU hash 94.5, count-min map 93.1, and the same
+sketch written in BPF in an arena 75.9. With 100,004 threads and
+700,000 writes, a 1,024-entry hash refused 296,940 inserts and an LRU
+hash lost the four heaviest threads; the map, 109,064 bytes, kept an
+estimate for every thread, none below the truth and none above the
+bound of 700.
+
+Push and peek compute the slot of each row inline: called as a
+function, five times a push, the counter cost 108.0 ns a run and the
+push benchmark 25.3 M/s.
+
+A question for reviewers. The same sketch built in BPF on an arena
+costs less per event, is read by user space without system calls and
+needs no kernel change; the case for such structures in BPF code was
+made in the bloom filter's review [1]. The map type gives bpf() access
+to tools that load no program and a stable interface. Is that worth a
+new map type, or would a sketch in the selftests' arena library be the
+better home?
+
+[1] https://lore.kernel.org/bpf/CAEf4Bza_y6497cWE5H04gDg__RkoMovkFYSqXjo-yFG7XH11ug@mail.gmail.com/
+
+The series is based on v7.2 rather than bpf-next.
+
+A. Reader (8):
+  bpf: Count a bloom filter peek as a read in stack liveness
+  selftests/bpf: Test a bloom filter peek of a stack value
+  bpf: Add count-min sketch map type
+  bpf, docs: Document BPF_MAP_TYPE_COUNT_MIN
+  libbpf: Support the count-min sketch map type
+  bpftool: Add count_min to the map types
+  selftests/bpf: Add count-min sketch map tests
+  selftests/bpf: Add count-min sketch map benchmark
+
+ Documentation/bpf/map_count_min.rst           |  99 ++++++++
+ include/linux/bpf_types.h                     |   1 +
+ include/uapi/linux/bpf.h                      |   5 +
+ kernel/bpf/Makefile                           |   2 +-
+ kernel/bpf/count_min.c                        | 209 ++++++++++++++++
+ kernel/bpf/syscall.c                          |  18 +-
+ kernel/bpf/verifier.c                         |  19 +-
+ .../bpf/bpftool/Documentation/bpftool-map.rst |   2 +-
+ tools/bpf/bpftool/map.c                       |   2 +-
+ tools/include/uapi/linux/bpf.h                |   5 +
+ tools/lib/bpf/libbpf.c                        |   1 +
+ tools/lib/bpf/libbpf_probes.c                 |   5 +
+ tools/testing/selftests/bpf/Makefile          |   2 +
+ tools/testing/selftests/bpf/bench.c           |  10 +
+ .../bpf/benchs/bench_count_min_map.c          | 229 ++++++++++++++++++
+ .../selftests/bpf/prog_tests/count_min_map.c  | 166 +++++++++++++
+ .../selftests/bpf/prog_tests/verifier.c       |   2 +
+ .../selftests/bpf/progs/count_min_bench.c     | 102 ++++++++
+ .../selftests/bpf/progs/count_min_map.c       |  55 +++++
+ .../bpf/progs/count_min_map_verifier.c        |  63 +++++
+ .../selftests/bpf/progs/verifier_bloom_peek.c |  39 +++
+ 21 files changed, 1029 insertions(+), 7 deletions(-)
+ create mode 100644 Documentation/bpf/map_count_min.rst
+ create mode 100644 kernel/bpf/count_min.c
+ create mode 100644 tools/testing/selftests/bpf/benchs/bench_count_min_map.c
+ create mode 100644 tools/testing/selftests/bpf/prog_tests/count_min_map.c
+ create mode 100644 tools/testing/selftests/bpf/progs/count_min_bench.c
+ create mode 100644 tools/testing/selftests/bpf/progs/count_min_map.c
+ create mode 100644 tools/testing/selftests/bpf/progs/count_min_map_verifier.c
+ create mode 100644 tools/testing/selftests/bpf/progs/verifier_bloom_peek.c
+
+-- 
+2.56.0
+

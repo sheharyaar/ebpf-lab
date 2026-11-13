@@ -1,0 +1,565 @@
+[
+ {
+  "year": "1993",
+  "version": "—",
+  "what": "The BSD Packet Filter paper (McCanne and Jacobson)",
+  "extra": false,
+  "chapters": [
+   "ch0"
+  ],
+  "note": "No code: the paper describes the machine Linux copied four years later, an accumulator, an index register and sixteen words of scratch memory.",
+  "code": "https://www.tcpdump.org/papers/bpf-usenix93.pdf",
+  "codelabel": "paper"
+ },
+ {
+  "year": "1997",
+  "version": "2.1.75",
+  "what": "Linux Socket Filter: classic BPF on one socket",
+  "extra": false,
+  "chapters": [
+   "ch0"
+  ],
+  "note": "Older than git, so the whole release is one patch against 2.1.74. Search it for net/core/filter.c (367 lines, new) and include/linux/filter.h (108).",
+  "code": "https://cdn.kernel.org/pub/linux/kernel/v2.1/patch-2.1.75.gz",
+  "codelabel": "patch"
+ },
+ {
+  "year": "2011",
+  "version": "3.0",
+  "what": "classic filters translated into x86-64 machine code",
+  "extra": false,
+  "chapters": [
+   "jit"
+  ],
+  "note": "A new directory, arch/x86/net. bpf_jit_comp.c turns each classic instruction into x86-64 bytes; bpf_jit.S holds the slow paths that load packet data.",
+  "sha": "0a14842f5a3c0e88a1e59fac5c3025db39721f74",
+  "subject": "net: filter: Just In Time compiler for x86-64",
+  "author": "Eric Dumazet",
+  "date": "2011-04-20",
+  "added": 918,
+  "removed": 62,
+  "files": 14,
+  "code": "https://git.kernel.org/linus/0a14842f5a3c",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1301838968.2837.200.camel@edumazet-laptop"
+ },
+ {
+  "year": "2012",
+  "version": "3.5",
+  "what": "seccomp: classic BPF filters system calls",
+  "extra": false,
+  "chapters": [
+   "ch0"
+  ],
+  "note": "The filter reads a struct seccomp_data, the system call number and its six arguments, instead of a packet. kernel/seccomp.c grows by 396 lines.",
+  "sha": "e2cfabdfd075648216f99c2c03821cf3f47c1727",
+  "subject": "seccomp: add system call filtering using BPF",
+  "author": "Will Drewry",
+  "date": "2012-04-12",
+  "added": 472,
+  "removed": 23,
+  "files": 6,
+  "code": "https://git.kernel.org/linus/e2cfabdfd075",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1334267284-19166-8-git-send-email-wad@chromium.org"
+ },
+ {
+  "year": "2014",
+  "version": "3.15",
+  "what": "eBPF: the machine rebuilt inside the kernel",
+  "extra": false,
+  "chapters": [
+   "machine"
+  ],
+  "note": "The new instruction set and its interpreter, still inside net/core/filter.c. Classic filters are translated on load, which is why kernel/seccomp.c changes too.",
+  "sha": "bd4cf0ed331a275e9bf5a49e6d0fd55dffc551b8",
+  "subject": "net: filter: rework/optimize internal BPF interpreter's instruction set",
+  "author": "Alexei Starovoitov",
+  "date": "2014-03-28",
+  "added": 1279,
+  "removed": 372,
+  "files": 4,
+  "code": "https://git.kernel.org/linus/bd4cf0ed331a",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1396029506-16776-9-git-send-email-dborkman@redhat.com"
+ },
+ {
+  "year": "2014",
+  "version": "3.16",
+  "what": "eBPF programs translated into x86-64 code",
+  "extra": false,
+  "chapters": [
+   "jit"
+  ],
+  "note": "The 2011 compiler rewritten for the new instruction set: one switch over opcodes that emits x86-64 bytes, the shape <a class=\"xref\" href=\"#ch7\"></a> reads.",
+  "sha": "622582786c9e041d0bd52bde201787adeab249f8",
+  "subject": "net: filter: x86: internal BPF JIT",
+  "author": "Alexei Starovoitov",
+  "date": "2014-05-14",
+  "added": 748,
+  "removed": 655,
+  "files": 4,
+  "code": "https://git.kernel.org/linus/622582786c9e",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1400035847-7730-3-git-send-email-ast@plumgrid.com"
+ },
+ {
+  "year": "2014",
+  "version": "3.18",
+  "what": "the bpf() system call and maps",
+  "extra": false,
+  "chapters": [
+   "load",
+   "maps"
+  ],
+  "note": "kernel/bpf/syscall.c is born with one command, BPF_MAP_CREATE. Lookups, program loading and the verifier came in the other ten patches of the series.",
+  "sha": "99c55f7d47c0dc6fc64729f37bf435abf43f4c60",
+  "subject": "bpf: introduce BPF syscall and maps",
+  "author": "Alexei Starovoitov",
+  "date": "2014-09-26",
+  "added": 273,
+  "removed": 1,
+  "files": 5,
+  "code": "https://git.kernel.org/linus/99c55f7d47c0",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1411715827-10430-2-git-send-email-ast@plumgrid.com"
+ },
+ {
+  "year": "2015",
+  "version": "4.1",
+  "what": "kprobes: a program on (almost) any kernel function",
+  "extra": false,
+  "chapters": [
+   "hooks"
+  ],
+  "note": "kernel/trace/bpf_trace.c is born: the first program type outside networking, attached through perf’s kprobe events.",
+  "sha": "2541517c32be2531e0da59dfd7efc1ce844644f5",
+  "subject": "tracing, perf: Implement BPF programs attached to kprobes",
+  "author": "Alexei Starovoitov",
+  "date": "2015-03-25",
+  "added": 219,
+  "removed": 1,
+  "files": 8,
+  "code": "https://git.kernel.org/linus/2541517c32be",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1427312966-8434-4-git-send-email-ast@plumgrid.com"
+ },
+ {
+  "year": "2015",
+  "version": "4.2",
+  "what": "tail calls: one program jumps to another",
+  "extra": false,
+  "chapters": [
+   "jit"
+  ],
+  "note": "The program array lives in kernel/bpf/arraymap.c; the jump itself is a few lines in the interpreter in kernel/bpf/core.c. <a class=\"xref cap\" href=\"#jit\"></a> reads both.",
+  "sha": "04fd61ab36ec065e194ab5e74ae34a5240d992bb",
+  "subject": "bpf: allow bpf programs to tail-call other bpf programs",
+  "author": "Alexei Starovoitov",
+  "date": "2015-05-19",
+  "added": 255,
+  "removed": 9,
+  "files": 9,
+  "code": "https://git.kernel.org/linus/04fd61ab36ec",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1432079946-9878-2-git-send-email-ast@plumgrid.com"
+ },
+ {
+  "year": "2015",
+  "version": "4.4",
+  "what": "bpffs: programs and maps pinned as files",
+  "extra": false,
+  "chapters": [
+   "load"
+  ],
+  "note": "kernel/bpf/inode.c is born: a small file system whose files hold a reference to a map or program, so either outlives the process that made it.",
+  "sha": "b2197755b2633e164a439682fb05a9b5ea48f706",
+  "subject": "bpf: add support for persistent maps/progs",
+  "author": "Daniel Borkmann",
+  "date": "2015-10-29",
+  "added": 433,
+  "removed": 41,
+  "files": 6,
+  "code": "https://git.kernel.org/linus/b2197755b263",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/4a49d42b6f4e3bd122a76c7bc98ca1ae454ee34c.1446126105.git.daniel@iogearbox.net"
+ },
+ {
+  "year": "2016",
+  "version": "4.7",
+  "what": "tracepoints: fixed, named hooks",
+  "extra": false,
+  "chapters": [
+   "hooks"
+  ],
+  "note": "Nineteen added lines. Attaching to tracepoints reused the plumbing the kprobe commit of 4.1 had built.",
+  "sha": "98b5c2c65c2951772a8fc661f50d675e450e8bce",
+  "subject": "perf, bpf: allow bpf programs attach to tracepoints",
+  "author": "Alexei Starovoitov",
+  "date": "2016-04-07",
+  "added": 19,
+  "removed": 5,
+  "files": 3,
+  "code": "https://git.kernel.org/linus/98b5c2c65c29",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1459993411-2754735-5-git-send-email-ast@fb.com"
+ },
+ {
+  "year": "2016",
+  "version": "4.8",
+  "what": "XDP: a program in the network driver",
+  "extra": false,
+  "chapters": [
+   "hooks"
+  ],
+  "note": "A program type, its context struct xdp_md and the verdicts XDP_DROP, XDP_PASS and XDP_ABORTED. The driver hooks came later in the series.",
+  "sha": "6a773a15a1e8874e5eccd2f29190c31085912c95",
+  "subject": "bpf: add XDP prog type for early driver filter",
+  "author": "Brenden Blanco",
+  "date": "2016-07-19",
+  "added": 118,
+  "removed": 0,
+  "files": 4,
+  "code": "https://git.kernel.org/linus/6a773a15a1e8",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/1468955817-10604-3-git-send-email-bblanco@plumgrid.com"
+ },
+ {
+  "year": "2017",
+  "version": "4.16",
+  "what": "bpf-to-bpf function calls",
+  "extra": false,
+  "chapters": [
+   "machine",
+   "jit"
+  ],
+  "note": "verifier.c learns where one function ends and the next begins. The stack-frame checks that make calls safe are the next patch of the series.",
+  "sha": "cc8b0b92a1699bc32f7fec71daa2bfc90de43a4d",
+  "subject": "bpf: introduce function calls (function boundaries)",
+  "author": "Alexei Starovoitov",
+  "date": "2017-12-15",
+  "added": 155,
+  "removed": 5,
+  "files": 4,
+  "code": "https://git.kernel.org/linus/cc8b0b92a169",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20171215015517.409513-2-ast@kernel.org"
+ },
+ {
+  "year": "2018",
+  "version": "4.18",
+  "what": "BTF: the kernel describes its own types",
+  "extra": false,
+  "chapters": [
+   "object"
+  ],
+  "note": "kernel/bpf/btf.c is born, with the format in include/uapi/linux/btf.h. At first BTF described map keys and values; type information for the whole kernel came in 5.2.",
+  "sha": "69b693f0aefa0ed521e8bd02260523b5ae446ad7",
+  "subject": "bpf: btf: Introduce BPF Type Format (BTF)",
+  "author": "Martin KaFai Lau",
+  "date": "2018-04-18",
+  "added": 1046,
+  "removed": 0,
+  "files": 3,
+  "code": "https://git.kernel.org/linus/69b693f0aefa",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20180418225606.2771620-2-kafai@fb.com"
+ },
+ {
+  "year": "2019",
+  "version": "5.2",
+  "what": "the one-million-instruction limit",
+  "extra": false,
+  "chapters": [
+   "walk"
+  ],
+  "note": "Three changed lines. The limit was a constant, and the work that made a larger one affordable came in the patches before it.",
+  "sha": "c04c0d2b968ac45d6ef020316808ef6c82325a82",
+  "subject": "bpf: increase complexity limit and maximum program size",
+  "author": "Alexei Starovoitov",
+  "date": "2019-04-02",
+  "added": 3,
+  "removed": 2,
+  "files": 3,
+  "code": "https://git.kernel.org/linus/c04c0d2b968a",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20190402042749.3670015-7-ast@kernel.org"
+ },
+ {
+  "year": "2019",
+  "version": "5.3",
+  "what": "bounded loops",
+  "extra": false,
+  "chapters": [
+   "walk",
+   "prevail"
+  ],
+  "note": "push_insn() stops refusing every backward jump, and is_state_visited() learns to report an infinite loop when a state repeats on the same path.",
+  "sha": "2589726d12a1b12eaaa93c7f1ea64287e383c7a5",
+  "subject": "bpf: introduce bounded loops",
+  "author": "Alexei Starovoitov",
+  "date": "2019-06-15",
+  "added": 181,
+  "removed": 13,
+  "files": 2,
+  "code": "https://git.kernel.org/linus/2589726d12a1",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20190615191225.2409862-5-ast@kernel.org"
+ },
+ {
+  "year": "2019",
+  "version": "libbpf",
+  "what": "CO-RE: compile once, run everywhere",
+  "extra": false,
+  "chapters": [
+   "object"
+  ],
+  "note": "The relocation algorithm in tools/lib/bpf/libbpf.c, merged for 5.4. The compiler side shipped in Clang 10 in March 2020, the year CO-RE became usable.",
+  "sha": "ddc7c3042614e273044f698d2beab25cc3842d45",
+  "subject": "libbpf: implement BPF CO-RE offset relocation algorithm",
+  "author": "Andrii Nakryiko",
+  "date": "2019-08-07",
+  "added": 864,
+  "removed": 18,
+  "files": 2,
+  "code": "https://git.kernel.org/linus/ddc7c3042614",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20190807214001.872988-5-andriin@fb.com"
+ },
+ {
+  "year": "2019",
+  "version": "5.5",
+  "what": "trampolines: programs on function entry and exit",
+  "extra": false,
+  "chapters": [
+   "jit",
+   "hooks"
+  ],
+  "note": "kernel/bpf/trampoline.c is born, and the x86 JIT learns to write the trampoline itself, a small generated function that saves registers and calls the programs.",
+  "sha": "fec56f5890d93fc2ed74166c397dc186b1c25951",
+  "subject": "bpf: Introduce BPF trampoline",
+  "author": "Alexei Starovoitov",
+  "date": "2019-11-14",
+  "added": 735,
+  "removed": 10,
+  "files": 9,
+  "code": "https://git.kernel.org/linus/fec56f5890d9",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20191114185720.1641606-5-ast@kernel.org"
+ },
+ {
+  "year": "2020",
+  "version": "5.6",
+  "what": "struct_ops: BPF fills in a table of kernel callbacks",
+  "extra": true,
+  "chapters": [
+   "schedext"
+  ],
+  "note": "A kernel structure of function pointers whose entries are BPF programs, in kernel/bpf/bpf_struct_ops.c. sched_ext is built on it.",
+  "sha": "27ae7997a66174cb8afd6a75b3989f5e0c1b9e5a",
+  "subject": "bpf: Introduce BPF_PROG_TYPE_STRUCT_OPS",
+  "author": "Martin KaFai Lau",
+  "date": "2020-01-09",
+  "added": 373,
+  "removed": 63,
+  "files": 10,
+  "code": "https://git.kernel.org/linus/27ae7997a661",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20200109003503.3855825-1-kafai@fb.com"
+ },
+ {
+  "year": "2020",
+  "version": "5.7",
+  "what": "bpf_link: an attachment becomes an object",
+  "extra": false,
+  "chapters": [
+   "load",
+   "hooks"
+  ],
+  "note": "struct bpf_link in kernel/bpf/syscall.c: an attachment gets its own file descriptor and can be pinned like a map.",
+  "sha": "70ed506c3bbcfa846d4636b23051ca79fa4781f7",
+  "subject": "bpf: Introduce pinnable bpf_link abstraction",
+  "author": "Andrii Nakryiko",
+  "date": "2020-03-03",
+  "added": 232,
+  "removed": 46,
+  "files": 3,
+  "code": "https://git.kernel.org/linus/70ed506c3bbc",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20200303043159.323675-2-andriin@fb.com"
+ },
+ {
+  "year": "2020",
+  "version": "5.7",
+  "what": "LSM programs",
+  "extra": false,
+  "chapters": [
+   "hooks"
+  ],
+  "note": "Seventeen lines create the program type in kernel/bpf/bpf_lsm.c; the security hooks it attaches to arrived later in the series.",
+  "sha": "fc611f47f2188ade2b48ff6902d5cce8baac0c58",
+  "subject": "bpf: Introduce BPF_PROG_TYPE_LSM",
+  "author": "KP Singh",
+  "date": "2020-03-29",
+  "added": 49,
+  "removed": 6,
+  "files": 10,
+  "code": "https://git.kernel.org/linus/fc611f47f218",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20200329004356.27286-2-kpsingh@chromium.org"
+ },
+ {
+  "year": "2020",
+  "version": "5.8",
+  "what": "the ring buffer",
+  "extra": false,
+  "chapters": [
+   "maps"
+  ],
+  "note": "kernel/bpf/ringbuf.c is born. The 195 changed lines in verifier.c make reserve-then-submit a rule the verifier enforces.",
+  "sha": "457f44363a8894135c85b7a9afd2bd8196db24ab",
+  "subject": "bpf: Implement BPF ring buffer and verifier support for it",
+  "author": "Andrii Nakryiko",
+  "date": "2020-05-29",
+  "added": 882,
+  "removed": 70,
+  "files": 19,
+  "code": "https://git.kernel.org/linus/457f44363a88",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20200529075424.3139988-2-andriin@fb.com"
+ },
+ {
+  "year": "2020",
+  "version": "5.10",
+  "what": "sleepable programs",
+  "extra": true,
+  "chapters": [
+   "hooks"
+  ],
+  "note": "The trampoline wraps a sleepable program in rcu_read_lock_trace() rather than rcu_read_lock(), and verifier.c limits which programs and maps may sleep.",
+  "sha": "1e6c62a8821557720a9b2ea9617359b264f2f67c",
+  "subject": "bpf: Introduce sleepable BPF programs",
+  "author": "Alexei Starovoitov",
+  "date": "2020-08-27",
+  "added": 162,
+  "removed": 25,
+  "files": 10,
+  "code": "https://git.kernel.org/linus/1e6c62a88215",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20200827220114.69225-3-alexei.starovoitov@gmail.com"
+ },
+ {
+  "year": "2021",
+  "version": "5.13",
+  "what": "kfuncs: programs call ordinary kernel functions",
+  "extra": false,
+  "chapters": [
+   "calls"
+  ],
+  "note": "verifier.c learns to check a call to an ordinary kernel function against its BTF type, the check <a class=\"xref\" href=\"#ch13\"></a> follows.",
+  "sha": "e6ac2450d6dee3121cd8bbf2907b78a68a8a353d",
+  "subject": "bpf: Support bpf program calling kernel function",
+  "author": "Martin KaFai Lau",
+  "date": "2021-03-25",
+  "added": 480,
+  "removed": 46,
+  "files": 13,
+  "code": "https://git.kernel.org/linus/e6ac2450d6de",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20210325015142.1544736-1-kafai@fb.com"
+ },
+ {
+  "year": "2024",
+  "version": "6.9",
+  "what": "BPF token",
+  "extra": false,
+  "chapters": [
+   "load"
+  ],
+  "note": "kernel/bpf/token.c is born: an object that lets a container load programs it could not load on its own capabilities.",
+  "sha": "35f96de04127d332a5c5e8a155d31f452f88c76d",
+  "subject": "bpf: Introduce BPF token object",
+  "author": "Andrii Nakryiko",
+  "date": "2024-01-24",
+  "added": 357,
+  "removed": 6,
+  "files": 7,
+  "code": "https://git.kernel.org/linus/35f96de04127",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20240124022127.2379740-4-andrii@kernel.org"
+ },
+ {
+  "year": "2024",
+  "version": "6.9",
+  "what": "arena",
+  "extra": false,
+  "chapters": [
+   "maps",
+   "memory"
+  ],
+  "note": "kernel/bpf/arena.c is born: memory shared by a program and a user process at the same addresses, with pages added on demand.",
+  "sha": "317460317a02a1af512697e6e964298dedd8a163",
+  "subject": "bpf: Introduce bpf_arena.",
+  "author": "Alexei Starovoitov",
+  "date": "2024-03-08",
+  "added": 635,
+  "removed": 2,
+  "files": 9,
+  "code": "https://git.kernel.org/linus/317460317a02",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20240308010812.89848-2-alexei.starovoitov@gmail.com"
+ },
+ {
+  "year": "2024",
+  "version": "RFC",
+  "what": "RFC 9669: the instruction set becomes a standard",
+  "extra": false,
+  "chapters": [
+   "machine"
+  ],
+  "note": "No code: the instruction set written down as an IETF standard, based on the kernel’s own document.",
+  "code": "https://www.rfc-editor.org/rfc/rfc9669",
+  "codelabel": "RFC"
+ },
+ {
+  "year": "2024",
+  "version": "6.12",
+  "what": "sched_ext: a CPU scheduler written in BPF",
+  "extra": false,
+  "chapters": [
+   "schedext"
+  ],
+  "note": "kernel/sched/ext.c is born at 4,256 lines. The scheduler’s callbacks are a struct_ops, the 2020 row above.",
+  "sha": "f0e1a0643a59bf1f922fa209cec86a170b784f3f",
+  "subject": "sched_ext: Implement BPF extensible scheduler class",
+  "author": "Tejun Heo",
+  "date": "2024-06-18",
+  "added": 4616,
+  "removed": 7,
+  "files": 14,
+  "code": "https://git.kernel.org/linus/f0e1a0643a59",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20240618212056.2833381-10-tj@kernel.org"
+ },
+ {
+  "year": "2025",
+  "version": "6.18",
+  "what": "signed BPF programs",
+  "extra": false,
+  "chapters": [
+   "load",
+   "epilogue"
+  ],
+  "note": "BPF_PROG_LOAD checks a signature in kernel/bpf/syscall.c. Earlier patches of the series bind a map to one program by hash, so a signed loader can trust what it reads.",
+  "sha": "349271568303695f0ac3563af153d2b4542f6986",
+  "subject": "bpf: Implement signature verification for BPF programs",
+  "author": "KP Singh",
+  "date": "2025-09-21",
+  "added": 68,
+  "removed": 3,
+  "files": 7,
+  "code": "https://git.kernel.org/linus/349271568303",
+  "codelabel": "commit",
+  "thread": "https://lore.kernel.org/r/20250921160120.9711-2-kpsingh@kernel.org"
+ }
+]

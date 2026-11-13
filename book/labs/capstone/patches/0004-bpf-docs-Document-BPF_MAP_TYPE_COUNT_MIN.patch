@@ -1,0 +1,121 @@
+From 9c26581e48eb1b222ac71c40e8e491f464ec0790 Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 05:36:41 +0530
+Subject: [PATCH bpf-next 4/8] bpf, docs: Document BPF_MAP_TYPE_COUNT_MIN
+
+Describe the count-min sketch map: its value layout, how width and
+depth follow from the error bound, the helpers and the bpf() commands
+that reach it, and an example.
+---
+ Documentation/bpf/map_count_min.rst | 99 +++++++++++++++++++++++++++++
+ 1 file changed, 99 insertions(+)
+ create mode 100644 Documentation/bpf/map_count_min.rst
+
+diff --git a/Documentation/bpf/map_count_min.rst b/Documentation/bpf/map_count_min.rst
+new file mode 100644
+index 000000000..aaf7f5063
+--- /dev/null
++++ b/Documentation/bpf/map_count_min.rst
+@@ -0,0 +1,99 @@
++.. SPDX-License-Identifier: GPL-2.0-only
++
++======================
++BPF_MAP_TYPE_COUNT_MIN
++======================
++
++``BPF_MAP_TYPE_COUNT_MIN`` provides a count-min sketch: approximate
++counts for any number of keys in memory that is fixed when the map is
++created. The sketch is ``depth`` rows of ``width`` counters with one
++hash function per row. Adding a count to a key adds it to one counter in
++each row, and the estimate for a key is the smallest of its counters.
++
++An estimate is never below the key's true count. If ``N`` is the total
++of all counts added, the estimate exceeds the true count by more than
++``e * N / width`` with probability at most ``exp(-depth)``. To bound the
++error by ``epsilon * N`` with probability ``1 - delta``, choose
++``width = ceil(e / epsilon)`` and ``depth = ceil(ln(1 / delta))``
++(Cormode and Muthukrishnan, 2005).
++
++The map has no keys, only values, and must be created with a
++``key_size`` of 0. A value is the bytes of the key being counted followed
++by a ``__u64`` count, so ``value_size`` is the size of the key plus 8 and
++must be larger than 8. ``max_entries`` is the width. The lower 4 bits of
++``map_extra`` set the depth; 0 selects the default of 5 rows. The hash
++seed is random unless the map is created with ``BPF_F_ZERO_SEED``.
++
++The counters take ``8 * width * depth`` bytes. Elements cannot be
++deleted or iterated, and the map may be used as an inner map.
++
++Usage
++=====
++
++Kernel BPF
++----------
++
++bpf_map_push_elem()
++~~~~~~~~~~~~~~~~~~~
++
++.. code-block:: c
++
++   long bpf_map_push_elem(struct bpf_map *map, const void *value, u64 flags)
++
++Adds the count in ``value`` to the key in ``value``. ``flags`` must be
++``BPF_ANY``. Returns ``0`` on success, or a negative error.
++
++bpf_map_peek_elem()
++~~~~~~~~~~~~~~~~~~~
++
++.. code-block:: c
++
++   long bpf_map_peek_elem(struct bpf_map *map, void *value)
++
++Returns the estimate for the key in ``value``, a number of 0 or more.
++The count in ``value`` is ignored and not changed.
++
++Userspace
++---------
++
++``BPF_MAP_UPDATE_ELEM`` adds the count in ``value`` to its key, like
++push. ``BPF_MAP_LOOKUP_ELEM`` reads the key from ``value`` and writes the
++estimate into the count of ``value``. In both, ``key`` must be ``NULL``.
++
++Examples
++========
++
++.. code-block:: c
++
++    struct cms_value {
++            __u64 tid;
++            __u64 count;
++    };
++
++    struct {
++            __uint(type, BPF_MAP_TYPE_COUNT_MIN);
++            __type(value, struct cms_value);
++            __uint(max_entries, 2719);      /* epsilon = 0.001 */
++            __uint(map_extra, 5);           /* delta = 0.0067 */
++    } writes SEC(".maps");
++
++    SEC("fentry/vfs_write")
++    int BPF_PROG(count_writes)
++    {
++            struct cms_value v = {
++                    .tid = (__u32)bpf_get_current_pid_tgid(),
++                    .count = 1,
++            };
++
++            bpf_map_push_elem(&writes, &v, BPF_ANY);
++            return 0;
++    }
++
++From user space, the estimate for a thread is read with:
++
++.. code-block:: c
++
++    struct cms_value v = { .tid = tid };
++
++    err = bpf_map_lookup_elem(map_fd, NULL, &v);
++    /* v.count is the estimate */
+-- 
+2.56.0
+

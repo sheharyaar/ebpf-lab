@@ -1,0 +1,9 @@
+% One chapter of the printed book through LaTeX, to compare with the Paged.js edition.
+%   python3 -I html2tex.py ch04 && lualatex sample.tex && lualatex sample.tex
+%   In a private directory:  python3 -I html2tex.py ch04 --out DIR && cd DIR && lualatex sample.tex && lualatex sample.tex
+\documentclass[twoside,openany]{book}
+\usepackage{ebpfbook}
+\graphicspath{{out/}}
+\begin{document}
+\input{out/body.tex}
+\end{document}

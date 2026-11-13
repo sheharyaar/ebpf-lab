@@ -1,0 +1,16 @@
+% The whole printed book.
+%   python3 -I html2tex.py --book && lualatex book.tex && python3 -I html2tex.py --index && lualatex book.tex && lualatex book.tex
+%   (the index step reads book.ixw from the run before it; run lualatex until the contents settle)
+% A private build, so that two people can build at once (every generated file in DIR; the style, fonts, figures'
+% sources and checks are read from the book; DIR/book.tex is a fresh copy of this file):
+%   python3 -I tex/html2tex.py --book --out DIR
+%   cd DIR && lualatex book.tex && python3 -I BOOK/tex/html2tex.py --index --out DIR && lualatex book.tex && lualatex book.tex
+%   python3 -I checks/strand.py book.pdf out/*.tex && python3 -I checks/labs.py book.pdf && python3 -I checks/boxes.py book.pdf   (still in DIR)
+% One chapter in private:  python3 -I tex/html2tex.py maps --out DIR  &&  cd DIR && lualatex sample.tex && lualatex sample.tex
+\documentclass[twoside,openright]{book}
+\usepackage{ebpfbook}
+\graphicspath{{out/}}
+\hypersetup{pdftitle={eBPF for Systems Engineers},pdfauthor={Mohammad Shehar Yaar Tausif},pdfsubject={Linux v7.2, November 2026}}
+\begin{document}
+\input{out/book-body.tex}
+\end{document}

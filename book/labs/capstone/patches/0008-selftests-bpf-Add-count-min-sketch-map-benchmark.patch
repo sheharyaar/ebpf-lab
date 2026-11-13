@@ -1,0 +1,429 @@
+From 4529a14aebdafd15bbadd92c4791c167df05dc05 Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 05:36:41 +0530
+Subject: [PATCH bpf-next 8/8] selftests/bpf: Add count-min sketch map
+ benchmark
+
+Measure push and peek on a count-min sketch against counting the same
+keys in a hash and an LRU hash, the way a program counts events per
+key: look up, add in place, insert once.
+
+  ./bench -p 1 count-min-push --cms_width 2719 --cms_depth 5
+  ./bench -p 1 count-min-hash --cms_nr_keys 100000
+---
+ tools/testing/selftests/bpf/Makefile          |   2 +
+ tools/testing/selftests/bpf/bench.c           |  10 +
+ .../bpf/benchs/bench_count_min_map.c          | 229 ++++++++++++++++++
+ .../selftests/bpf/progs/count_min_bench.c     | 102 ++++++++
+ 4 files changed, 343 insertions(+)
+ create mode 100644 tools/testing/selftests/bpf/benchs/bench_count_min_map.c
+ create mode 100644 tools/testing/selftests/bpf/progs/count_min_bench.c
+
+diff --git a/tools/testing/selftests/bpf/Makefile b/tools/testing/selftests/bpf/Makefile
+index b642ee489..6c9bc27a7 100644
+--- a/tools/testing/selftests/bpf/Makefile
++++ b/tools/testing/selftests/bpf/Makefile
+@@ -966,6 +966,7 @@ $(OUTPUT)/bench_trigger.o: $(OUTPUT)/trigger_bench.skel.h
+ $(OUTPUT)/bench_ringbufs.o: $(OUTPUT)/ringbuf_bench.skel.h \
+ 			    $(OUTPUT)/perfbuf_bench.skel.h
+ $(OUTPUT)/bench_bloom_filter_map.o: $(OUTPUT)/bloom_filter_bench.skel.h
++$(OUTPUT)/bench_count_min_map.o: $(OUTPUT)/count_min_bench.skel.h
+ $(OUTPUT)/bench_bpf_loop.o: $(OUTPUT)/bpf_loop_bench.skel.h
+ $(OUTPUT)/bench_strncmp.o: $(OUTPUT)/strncmp_bench.skel.h
+ $(OUTPUT)/bench_bpf_hashmap_full_update.o: $(OUTPUT)/bpf_hashmap_full_update_bench.skel.h
+@@ -991,6 +992,7 @@ $(OUTPUT)/bench: $(OUTPUT)/bench.o \
+ 		 $(OUTPUT)/bench_trigger.o \
+ 		 $(OUTPUT)/bench_ringbufs.o \
+ 		 $(OUTPUT)/bench_bloom_filter_map.o \
++		 $(OUTPUT)/bench_count_min_map.o \
+ 		 $(OUTPUT)/bench_bpf_loop.o \
+ 		 $(OUTPUT)/bench_strncmp.o \
+ 		 $(OUTPUT)/bench_bpf_hashmap_full_update.o \
+diff --git a/tools/testing/selftests/bpf/bench.c b/tools/testing/selftests/bpf/bench.c
+index 3d9d2cd77..74ca17fce 100644
+--- a/tools/testing/selftests/bpf/bench.c
++++ b/tools/testing/selftests/bpf/bench.c
+@@ -275,6 +275,7 @@ static const struct argp_option opts[] = {
+ 
+ extern struct argp bench_ringbufs_argp;
+ extern struct argp bench_bloom_map_argp;
++extern struct argp bench_count_min_map_argp;
+ extern struct argp bench_bpf_loop_argp;
+ extern struct argp bench_local_storage_argp;
+ extern struct argp bench_local_storage_rcu_tasks_trace_argp;
+@@ -291,6 +292,7 @@ extern struct argp bench_xdp_lb_argp;
+ static const struct argp_child bench_parsers[] = {
+ 	{ &bench_ringbufs_argp, 0, "Ring buffers benchmark", 0 },
+ 	{ &bench_bloom_map_argp, 0, "Bloom filter map benchmark", 0 },
++	{ &bench_count_min_map_argp, 0, "Count-min sketch map benchmark", 0 },
+ 	{ &bench_bpf_loop_argp, 0, "bpf_loop helper benchmark", 0 },
+ 	{ &bench_local_storage_argp, 0, "local_storage benchmark", 0 },
+ 	{ &bench_strncmp_argp, 0, "bpf_strncmp helper benchmark", 0 },
+@@ -556,6 +558,10 @@ extern const struct bench bench_bloom_update;
+ extern const struct bench bench_bloom_false_positive;
+ extern const struct bench bench_hashmap_without_bloom;
+ extern const struct bench bench_hashmap_with_bloom;
++extern const struct bench bench_count_min_push;
++extern const struct bench bench_count_min_peek;
++extern const struct bench bench_count_min_hash;
++extern const struct bench bench_count_min_lru;
+ extern const struct bench bench_bpf_loop;
+ extern const struct bench bench_strncmp_no_helper;
+ extern const struct bench bench_strncmp_helper;
+@@ -639,6 +645,10 @@ static const struct bench *benchs[] = {
+ 	&bench_bloom_false_positive,
+ 	&bench_hashmap_without_bloom,
+ 	&bench_hashmap_with_bloom,
++	&bench_count_min_push,
++	&bench_count_min_peek,
++	&bench_count_min_hash,
++	&bench_count_min_lru,
+ 	&bench_bpf_loop,
+ 	&bench_strncmp_no_helper,
+ 	&bench_strncmp_helper,
+diff --git a/tools/testing/selftests/bpf/benchs/bench_count_min_map.c b/tools/testing/selftests/bpf/benchs/bench_count_min_map.c
+new file mode 100644
+index 000000000..2f454c592
+--- /dev/null
++++ b/tools/testing/selftests/bpf/benchs/bench_count_min_map.c
+@@ -0,0 +1,229 @@
++// SPDX-License-Identifier: GPL-2.0
++
++#include <argp.h>
++#include <sys/random.h>
++#include "bench.h"
++#include "count_min_bench.skel.h"
++#include "bpf_util.h"
++
++#define MAX_KEYS (1 << 20)
++
++static struct ctx {
++	struct count_min_bench *skel;
++} ctx;
++
++static struct {
++	__u32 width;
++	__u32 depth;
++	__u32 nr_keys;
++} args = {
++	.width = 2719,		/* epsilon = e / width = 0.001 */
++	.depth = 5,		/* delta = exp(-depth) = 0.0067 */
++	.nr_keys = 10000,
++};
++
++enum {
++	ARG_CMS_WIDTH = 9100,
++	ARG_CMS_DEPTH = 9101,
++	ARG_CMS_NR_KEYS = 9102,
++};
++
++static const struct argp_option opts[] = {
++	{ "cms_width", ARG_CMS_WIDTH, "WIDTH", 0,
++		"Set the number of counters in each row of the sketch"},
++	{ "cms_depth", ARG_CMS_DEPTH, "DEPTH", 0,
++		"Set the number of rows of the sketch (1 to 15)"},
++	{ "cms_nr_keys", ARG_CMS_NR_KEYS, "NR_KEYS", 0,
++		"Set the number of distinct keys counted"},
++	{},
++};
++
++static error_t parse_arg(int key, char *arg, struct argp_state *state)
++{
++	long ret;
++
++	switch (key) {
++	case ARG_CMS_WIDTH:
++		ret = strtol(arg, NULL, 10);
++		if (ret < 1 || ret > UINT_MAX / 15) {
++			fprintf(stderr, "Invalid width\n");
++			argp_usage(state);
++		}
++		args.width = ret;
++		break;
++	case ARG_CMS_DEPTH:
++		ret = strtol(arg, NULL, 10);
++		if (ret < 1 || ret > 15) {
++			fprintf(stderr, "Invalid depth: 1 to 15\n");
++			argp_usage(state);
++		}
++		args.depth = ret;
++		break;
++	case ARG_CMS_NR_KEYS:
++		ret = strtol(arg, NULL, 10);
++		if (ret < 1 || ret > MAX_KEYS) {
++			fprintf(stderr, "Invalid number of keys: 1 to %d\n", MAX_KEYS);
++			argp_usage(state);
++		}
++		args.nr_keys = ret;
++		break;
++	default:
++		return ARGP_ERR_UNKNOWN;
++	}
++
++	return 0;
++}
++
++/* exported into benchmark runner */
++const struct argp bench_count_min_map_argp = {
++	.options = opts,
++	.parser = parse_arg,
++};
++
++static void validate(void)
++{
++	if (env.consumer_cnt != 0) {
++		fprintf(stderr, "The count-min benchmarks do not support consumer\n");
++		exit(1);
++	}
++}
++
++static void *producer(void *input)
++{
++	while (true)
++		syscall(__NR_getpgid);
++
++	return NULL;
++}
++
++static void setup(const char *prog_name, enum bpf_map_type hash_type)
++{
++	struct count_min_bench *skel;
++	struct bpf_program *prog;
++	struct bpf_link *link;
++	__u32 i;
++
++	setup_libbpf();
++
++	skel = count_min_bench__open();
++	if (!skel) {
++		fprintf(stderr, "failed to open skeleton\n");
++		exit(1);
++	}
++	ctx.skel = skel;
++
++	bpf_map__set_max_entries(skel->maps.cms, args.width);
++	bpf_map__set_map_extra(skel->maps.cms, args.depth);
++	bpf_map__set_type(skel->maps.hashmap, hash_type);
++	bpf_map__set_max_entries(skel->maps.hashmap, args.nr_keys);
++	skel->rodata->nr_keys = args.nr_keys;
++
++	bpf_object__for_each_program(prog, skel->obj)
++		bpf_program__set_autoload(prog, false);
++	prog = bpf_object__find_program_by_name(skel->obj, prog_name);
++	bpf_program__set_autoload(prog, true);
++
++	if (count_min_bench__load(skel)) {
++		fprintf(stderr, "failed to load skeleton\n");
++		exit(1);
++	}
++
++	for (i = 0; i < args.nr_keys; i++)
++		if (getrandom(&skel->bss->keys[i], sizeof(__u64), 0) != sizeof(__u64)) {
++			fprintf(stderr, "failed to get random keys\n");
++			exit(1);
++		}
++
++	link = bpf_program__attach(prog);
++	if (!link) {
++		fprintf(stderr, "failed to attach program\n");
++		exit(1);
++	}
++}
++
++static void push_setup(void)
++{
++	setup("cms_push", BPF_MAP_TYPE_HASH);
++}
++
++static void peek_setup(void)
++{
++	setup("cms_peek", BPF_MAP_TYPE_HASH);
++}
++
++static void hash_setup(void)
++{
++	setup("hash_count", BPF_MAP_TYPE_HASH);
++}
++
++static void lru_setup(void)
++{
++	setup("hash_count", BPF_MAP_TYPE_LRU_HASH);
++}
++
++static void measure(struct bench_res *res)
++{
++	static unsigned long last_hits, last_drops;
++	unsigned long hits = 0, drops = 0;
++	unsigned int nr_cpus = bpf_num_possible_cpus();
++	unsigned int i;
++
++	if (ctx.skel->bss->error) {
++		fprintf(stderr, "error (%d) in the count-min program\n",
++			ctx.skel->bss->error);
++		exit(1);
++	}
++
++	for (i = 0; i < nr_cpus && i < 256; i++) {
++		hits += ctx.skel->bss->percpu_stats[i].hits;
++		drops += ctx.skel->bss->percpu_stats[i].drops;
++	}
++	res->hits = hits - last_hits;
++	res->drops = drops - last_drops;
++	last_hits = hits;
++	last_drops = drops;
++}
++
++const struct bench bench_count_min_push = {
++	.name = "count-min-push",
++	.argp = &bench_count_min_map_argp,
++	.validate = validate,
++	.setup = push_setup,
++	.producer_thread = producer,
++	.measure = measure,
++	.report_progress = hits_drops_report_progress,
++	.report_final = hits_drops_report_final,
++};
++
++const struct bench bench_count_min_peek = {
++	.name = "count-min-peek",
++	.argp = &bench_count_min_map_argp,
++	.validate = validate,
++	.setup = peek_setup,
++	.producer_thread = producer,
++	.measure = measure,
++	.report_progress = hits_drops_report_progress,
++	.report_final = hits_drops_report_final,
++};
++
++const struct bench bench_count_min_hash = {
++	.name = "count-min-hash",
++	.argp = &bench_count_min_map_argp,
++	.validate = validate,
++	.setup = hash_setup,
++	.producer_thread = producer,
++	.measure = measure,
++	.report_progress = hits_drops_report_progress,
++	.report_final = hits_drops_report_final,
++};
++
++const struct bench bench_count_min_lru = {
++	.name = "count-min-lru",
++	.argp = &bench_count_min_map_argp,
++	.validate = validate,
++	.setup = lru_setup,
++	.producer_thread = producer,
++	.measure = measure,
++	.report_progress = hits_drops_report_progress,
++	.report_final = hits_drops_report_final,
++};
+diff --git a/tools/testing/selftests/bpf/progs/count_min_bench.c b/tools/testing/selftests/bpf/progs/count_min_bench.c
+new file mode 100644
+index 000000000..dd1a7e087
+--- /dev/null
++++ b/tools/testing/selftests/bpf/progs/count_min_bench.c
+@@ -0,0 +1,102 @@
++// SPDX-License-Identifier: GPL-2.0
++
++#include <linux/bpf.h>
++#include <bpf/bpf_helpers.h>
++#include "bpf_misc.h"
++
++char _license[] SEC("license") = "GPL";
++
++#define MAX_KEYS	(1 << 20)
++#define OPS_PER_RUN	1024
++
++struct cms_value {
++	__u64 key;
++	__u64 count;
++};
++
++struct {
++	__uint(type, BPF_MAP_TYPE_COUNT_MIN);
++	__type(value, struct cms_value);
++	/* width (max_entries) and depth (map_extra) are set by the bench */
++} cms SEC(".maps");
++
++struct {
++	__uint(type, BPF_MAP_TYPE_HASH);
++	__type(key, __u64);
++	__type(value, __u64);
++	/* max_entries and the type (HASH or LRU_HASH) are set by the bench */
++} hashmap SEC(".maps");
++
++__u64 keys[MAX_KEYS];		/* random keys, filled by the bench */
++const volatile __u32 nr_keys = 1;
++
++struct {
++	__u32 hits;
++	__u32 drops;
++} __attribute__((__aligned__(256))) percpu_stats[256];
++
++int error;
++
++static __always_inline __u64 next_key(__u32 *idx)
++{
++	*idx = (*idx + 1) % nr_keys;
++	return keys[*idx & (MAX_KEYS - 1)];
++}
++
++static __always_inline void log_hit(void)
++{
++	percpu_stats[bpf_get_smp_processor_id() & 255].hits++;
++}
++
++SEC("fentry/" SYS_PREFIX "sys_getpgid")
++int cms_push(void *ctx)
++{
++	struct cms_value v = { .count = 1 };
++	__u32 i, idx = bpf_get_prandom_u32();
++
++	for (i = 0; i < OPS_PER_RUN; i++) {
++		v.key = next_key(&idx);
++		if (bpf_map_push_elem(&cms, &v, BPF_ANY)) {
++			error |= 1;
++			return 0;
++		}
++		log_hit();
++	}
++	return 0;
++}
++
++SEC("fentry/" SYS_PREFIX "sys_getpgid")
++int cms_peek(void *ctx)
++{
++	struct cms_value v = {};
++	__u32 i, idx = bpf_get_prandom_u32();
++
++	for (i = 0; i < OPS_PER_RUN; i++) {
++		v.key = next_key(&idx);
++		if (bpf_map_peek_elem(&cms, &v) < 0) {
++			error |= 2;
++			return 0;
++		}
++		log_hit();
++	}
++	return 0;
++}
++
++/* the write counter's way of counting in a hash: add in place, insert once */
++SEC("fentry/" SYS_PREFIX "sys_getpgid")
++int hash_count(void *ctx)
++{
++	__u32 i, idx = bpf_get_prandom_u32();
++	__u64 key, one = 1, *c;
++
++	for (i = 0; i < OPS_PER_RUN; i++) {
++		key = next_key(&idx);
++		c = bpf_map_lookup_elem(&hashmap, &key);
++		if (c)
++			__sync_fetch_and_add(c, 1);
++		else if (bpf_map_update_elem(&hashmap, &key, &one, BPF_NOEXIST))
++			percpu_stats[bpf_get_smp_processor_id() & 255].drops++;
++		log_hit();
++	}
++	return 0;
++}
+-- 
+2.56.0
+

@@ -1,0 +1,62 @@
+From 2bb4b70abb3290b08065793f4b6ab249e4462943 Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 05:47:23 +0530
+Subject: [PATCH bpf-next 1/8] bpf: Count a bloom filter peek as a read in
+ stack liveness
+
+bpf_map_peek_elem() writes the value buffer of a queue or a stack and
+reads the one of a bloom filter, and resolve_map_arg_type() turns the
+argument into a plain ARG_PTR_TO_MAP_VALUE for bloom filters.
+bpf_helper_stack_access_bytes() reads the helper's prototype instead,
+whose MEM_UNINIT says that the call only writes the buffer, so stack
+liveness takes the slots that hold the value as dead before the call.
+Once the state is cleaned there, the slots are poisoned and the call is
+refused:
+
+  reading from stack R2 off -8+0 size 8, slot poisoned by dead code elimination
+
+A program that peeks a bloom filter with a value on its stack, as the
+documentation's example does, is enough. Report the buffer of a bloom
+filter peek as read, and the buffer of a peek whose map is not known
+as read too, so that the slots stay live.
+
+Mainline describes this case since commit 830e4372de5c ("bpf: Describe
+helper stack accesses with arg_access_info"); this applies the same
+rule to a tree based on v7.2.
+---
+ kernel/bpf/verifier.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index fdc5fbb1f..9c404e655 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -12590,8 +12590,13 @@ s64 bpf_helper_stack_access_bytes(struct bpf_verifier_env *env, struct bpf_insn
+ 
+ 		i = aux->const_reg_vals[map_reg];
+ 		if (i < env->used_map_cnt) {
+-			size = is_key ? env->used_maps[i]->key_size
+-				      : env->used_maps[i]->value_size;
++			struct bpf_map *map = env->used_maps[i];
++
++			size = is_key ? map->key_size : map->value_size;
++			/* a bloom filter's peek reads the value it is given */
++			if (!is_key && insn->imm == BPF_FUNC_map_peek_elem &&
++			    map->map_type == BPF_MAP_TYPE_BLOOM_FILTER)
++				return size;
+ 			goto out;
+ 		}
+ scan_all_maps:
+@@ -12617,6 +12622,9 @@ s64 bpf_helper_stack_access_bytes(struct bpf_verifier_env *env, struct bpf_insn
+ 		if (!val)
+ 			return S64_MIN;
+ 		size = val;
++		/* the map may be one whose peek reads the value */
++		if (!is_key && insn->imm == BPF_FUNC_map_peek_elem)
++			return size;
+ 		goto out;
+ 	}
+ 	case ARG_PTR_TO_MEM:
+-- 
+2.56.0
+

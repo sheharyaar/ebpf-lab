@@ -1,0 +1,16 @@
+// jit.bt: one line per program the kernel loads, with its name and the time spent in
+// bpf_check() as a whole, in the JIT (bpf_int_jit_compile) and in constant blinding, in
+// nanoseconds, after a line for each pass of do_jit() with the length of the image it
+// produced. Started by jit-root.sh; stop it with SIGINT.
+kprobe:bpf_check { @c[tid] = nsecs; @np[tid] = 0; @jt[tid] = 0; @bt[tid] = 0; }
+kprobe:bpf_jit_blind_constants /@c[tid]/ { @b[tid] = nsecs; }
+kretprobe:bpf_jit_blind_constants /@b[tid]/ { @bt[tid] = nsecs - @b[tid]; delete(@b[tid]); }
+kprobe:bpf_int_jit_compile /@c[tid]/ { @j[tid] = nsecs; }
+kretprobe:do_jit /@c[tid]/ { @np[tid]++; printf("  pass %d: %d bytes\n", @np[tid], (int32)retval); }
+kretprobe:bpf_int_jit_compile /@j[tid]/ { @jt[tid] = nsecs - @j[tid]; delete(@j[tid]); }
+kprobe:bpf_check { @n[tid] = str(((union bpf_attr *)arg1)->prog_name); }
+kretprobe:bpf_check /@c[tid]/ {
+	printf("%s: bpf_check %llu ns, jit %llu ns in %d passes, blinding %llu ns\n", @n[tid],
+	       nsecs - @c[tid], @jt[tid], @np[tid], @bt[tid]);
+	delete(@c[tid]); delete(@jt[tid]); delete(@np[tid]); delete(@bt[tid]); delete(@n[tid]);
+}

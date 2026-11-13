@@ -1,0 +1,5 @@
+# One classic instruction, ldxb 4*([14]&0xf) ({ 0xb1, 0, 0, 0x0000000e } in
+# tcpdump -dd), whose mode, MSH (0xa0), the 2014 machine dropped.
+b1 00 00 00 0e 00 00 00
+b7 00 00 00 00 00 00 00   # r0 = 0
+95 00 00 00 00 00 00 00   # exit

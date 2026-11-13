@@ -1,0 +1,83 @@
+From 9c25871f8d38929f0e0301b77c09c41b1a5526ea Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 05:47:23 +0530
+Subject: [PATCH bpf-next 2/8] selftests/bpf: Test a bloom filter peek of a
+ stack value
+
+Load two programs that peek a bloom filter with a value on the stack,
+one after a push of the same value. Both were refused because stack
+liveness took the value as dead before the peek.
+---
+ .../selftests/bpf/prog_tests/verifier.c       |  2 +
+ .../selftests/bpf/progs/verifier_bloom_peek.c | 39 +++++++++++++++++++
+ 2 files changed, 41 insertions(+)
+ create mode 100644 tools/testing/selftests/bpf/progs/verifier_bloom_peek.c
+
+diff --git a/tools/testing/selftests/bpf/prog_tests/verifier.c b/tools/testing/selftests/bpf/prog_tests/verifier.c
+index be97f6887..1a8e0de07 100644
+--- a/tools/testing/selftests/bpf/prog_tests/verifier.c
++++ b/tools/testing/selftests/bpf/prog_tests/verifier.c
+@@ -73,6 +73,7 @@
+ #include "verifier_mul.skel.h"
+ #include "verifier_netfilter_ctx.skel.h"
+ #include "verifier_netfilter_retcode.skel.h"
++#include "verifier_bloom_peek.skel.h"
+ #include "verifier_bpf_fastcall.skel.h"
+ #include "verifier_or_jmp32_k.skel.h"
+ #include "verifier_precision.skel.h"
+@@ -226,6 +227,7 @@ void test_verifier_movsx(void)                 { RUN(verifier_movsx); }
+ void test_verifier_mul(void)                  { RUN(verifier_mul); }
+ void test_verifier_netfilter_ctx(void)        { RUN(verifier_netfilter_ctx); }
+ void test_verifier_netfilter_retcode(void)    { RUN(verifier_netfilter_retcode); }
++void test_verifier_bloom_peek(void)           { RUN(verifier_bloom_peek); }
+ void test_verifier_bpf_fastcall(void)         { RUN(verifier_bpf_fastcall); }
+ void test_verifier_or_jmp32_k(void)           { RUN(verifier_or_jmp32_k); }
+ void test_verifier_precision(void)            { RUN(verifier_precision); }
+diff --git a/tools/testing/selftests/bpf/progs/verifier_bloom_peek.c b/tools/testing/selftests/bpf/progs/verifier_bloom_peek.c
+new file mode 100644
+index 000000000..f1a0f62ac
+--- /dev/null
++++ b/tools/testing/selftests/bpf/progs/verifier_bloom_peek.c
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: GPL-2.0
++
++#include <linux/bpf.h>
++#include <bpf/bpf_helpers.h>
++#include "bpf_misc.h"
++
++char _license[] SEC("license") = "GPL";
++
++struct {
++	__uint(type, BPF_MAP_TYPE_BLOOM_FILTER);
++	__type(value, __u64);
++	__uint(max_entries, 16);
++} bloom SEC(".maps");
++
++/* bpf_map_peek_elem() reads the value of a bloom filter: the store
++ * before it must stay live
++ */
++SEC("raw_tp")
++__success
++int peek_stack_value(void *ctx)
++{
++	__u64 v = bpf_get_prandom_u32();
++
++	if (!v)
++		return 0;
++	return bpf_map_peek_elem(&bloom, &v);
++}
++
++SEC("raw_tp")
++__success
++int push_then_peek(void *ctx)
++{
++	__u64 v = bpf_get_prandom_u32();
++
++	if (!v)
++		return 0;
++	bpf_map_push_elem(&bloom, &v, BPF_ANY);
++	return bpf_map_peek_elem(&bloom, &v);
++}
+-- 
+2.56.0
+

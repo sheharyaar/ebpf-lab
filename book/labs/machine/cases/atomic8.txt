@@ -1,0 +1,6 @@
+# An 8-bit atomic add, which the instruction set does not define.
+b7 01 00 00 01 00 00 00   # r1 = 1
+7b 1a f8 ff 00 00 00 00   # *(u64 *)(r10 - 8) = r1
+d3 1a f8 ff 00 00 00 00   # lock *(u8 *)(r10 - 8) += r1
+b7 00 00 00 00 00 00 00   # r0 = 0
+95 00 00 00 00 00 00 00   # exit

@@ -1,0 +1,325 @@
+From d35d12ae7ac6a22e748ab3f25f66d16e9cb40cfd Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 05:36:41 +0530
+Subject: [PATCH bpf-next 7/8] selftests/bpf: Add count-min sketch map tests
+
+Check that map creation refuses a key, a value without a key, a zero
+width, a depth outside map_extra's lower 4 bits and too many counters;
+that update, lookup, delete and get_next_key behave from user space;
+that a program's push and peek agree with user space, that a peek
+after a push of the same stack value loads; and that the
+verifier refuses a lookup, a pop and a value shorter than value_size.
+---
+ .../selftests/bpf/prog_tests/count_min_map.c  | 166 ++++++++++++++++++
+ .../selftests/bpf/progs/count_min_map.c       |  55 ++++++
+ .../bpf/progs/count_min_map_verifier.c        |  63 +++++++
+ 3 files changed, 284 insertions(+)
+ create mode 100644 tools/testing/selftests/bpf/prog_tests/count_min_map.c
+ create mode 100644 tools/testing/selftests/bpf/progs/count_min_map.c
+ create mode 100644 tools/testing/selftests/bpf/progs/count_min_map_verifier.c
+
+diff --git a/tools/testing/selftests/bpf/prog_tests/count_min_map.c b/tools/testing/selftests/bpf/prog_tests/count_min_map.c
+new file mode 100644
+index 000000000..61b2c6acc
+--- /dev/null
++++ b/tools/testing/selftests/bpf/prog_tests/count_min_map.c
+@@ -0,0 +1,166 @@
++// SPDX-License-Identifier: GPL-2.0
++
++#include <limits.h>
++#include <test_progs.h>
++#include "count_min_map.skel.h"
++#include "count_min_map_verifier.skel.h"
++
++#define NR_KEYS 128
++
++struct cms_value {
++	__u64 key;
++	__u64 count;
++};
++
++static void test_fail_cases(void)
++{
++	LIBBPF_OPTS(bpf_map_create_opts, opts);
++	struct cms_value v = {};
++	int fd, err;
++
++	/* Invalid key size: the map is keyless */
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 4, sizeof(v), 100, NULL);
++	if (!ASSERT_LT(fd, 0, "count-min invalid key size"))
++		close(fd);
++
++	/* Invalid value size: a count with no key before it */
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, 8, 100, NULL);
++	if (!ASSERT_LT(fd, 0, "count-min value without key"))
++		close(fd);
++
++	/* Invalid width */
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, sizeof(v), 0, NULL);
++	if (!ASSERT_LT(fd, 0, "count-min zero width"))
++		close(fd);
++
++	/* Invalid depth: only the lower 4 bits of map_extra */
++	opts.map_extra = 16;
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, sizeof(v), 100, &opts);
++	if (!ASSERT_LT(fd, 0, "count-min invalid map_extra"))
++		close(fd);
++
++	/* Too many counters for a u32 slot index */
++	opts.map_extra = 15;
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, sizeof(v), UINT_MAX, &opts);
++	if (!ASSERT_LT(fd, 0, "count-min too many counters"))
++		close(fd);
++
++	/* Count-min maps are always preallocated */
++	opts.map_extra = 0;
++	opts.map_flags = BPF_F_NO_PREALLOC;
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, sizeof(v), 100, &opts);
++	if (!ASSERT_LT(fd, 0, "count-min invalid flags"))
++		close(fd);
++
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, sizeof(v), 100, NULL);
++	if (!ASSERT_GE(fd, 0, "count-min create"))
++		return;
++
++	err = bpf_map_update_elem(fd, NULL, &v, BPF_NOEXIST);
++	ASSERT_EQ(err, -EINVAL, "count-min update flags");
++
++	err = bpf_map_delete_elem(fd, NULL);
++	ASSERT_EQ(err, -EOPNOTSUPP, "count-min delete");
++
++	err = bpf_map_get_next_key(fd, NULL, &v);
++	ASSERT_EQ(err, -EOPNOTSUPP, "count-min get_next_key");
++
++	close(fd);
++}
++
++/* Estimates never fall below the true counts; with 128 keys in rows of
++ * 1,024 counters most keys share no counter in some row and come out
++ * exact.
++ */
++static void check_estimates(const __u64 *est, const char *who)
++{
++	int i, exact = 0;
++
++	for (i = 0; i < NR_KEYS; i++) {
++		if (!ASSERT_GE(est[i], i + 1, who))
++			return;
++		exact += est[i] == i + 1;
++	}
++	ASSERT_GE(exact, NR_KEYS * 9 / 10, who);
++}
++
++static void test_user_space(void)
++{
++	LIBBPF_OPTS(bpf_map_create_opts, opts,
++		    .map_flags = BPF_F_ZERO_SEED,
++		    .map_extra = 4);
++	struct cms_value v;
++	__u64 est[NR_KEYS];
++	int fd, err, i;
++
++	fd = bpf_map_create(BPF_MAP_TYPE_COUNT_MIN, NULL, 0, sizeof(v), 1024, &opts);
++	if (!ASSERT_GE(fd, 0, "count-min create"))
++		return;
++
++	for (i = 0; i < NR_KEYS; i++) {
++		v.key = i;
++		v.count = i + 1;
++		err = bpf_map_update_elem(fd, NULL, &v, BPF_ANY);
++		if (!ASSERT_OK(err, "count-min update"))
++			goto out;
++	}
++	for (i = 0; i < NR_KEYS; i++) {
++		v.key = i;
++		v.count = 0;
++		err = bpf_map_lookup_elem(fd, NULL, &v);
++		if (!ASSERT_OK(err, "count-min lookup"))
++			goto out;
++		est[i] = v.count;
++	}
++	check_estimates(est, "user space estimate");
++
++	/* A key never added may still share counters, but stays small */
++	v.key = 1ULL << 40;
++	v.count = 0;
++	err = bpf_map_lookup_elem(fd, NULL, &v);
++	ASSERT_OK(err, "count-min lookup absent");
++	ASSERT_LE(v.count, NR_KEYS * (NR_KEYS + 1) / 2, "absent key estimate");
++out:
++	close(fd);
++}
++
++static void test_program(void)
++{
++	LIBBPF_OPTS(bpf_test_run_opts, topts);
++	struct count_min_map *skel;
++	struct cms_value v;
++	int fd, err, i;
++
++	skel = count_min_map__open_and_load();
++	if (!ASSERT_OK_PTR(skel, "count_min_map__open_and_load"))
++		return;
++
++	err = bpf_prog_test_run_opts(bpf_program__fd(skel->progs.add_and_query), &topts);
++	if (!ASSERT_OK(err, "add_and_query") || !ASSERT_OK(skel->bss->error, "error"))
++		goto out;
++	check_estimates(skel->bss->estimate, "program estimate");
++
++	/* the program and user space read the same counters */
++	fd = bpf_map__fd(skel->maps.cms);
++	for (i = 0; i < NR_KEYS; i++) {
++		v.key = i;
++		v.count = 0;
++		err = bpf_map_lookup_elem(fd, NULL, &v);
++		if (!ASSERT_OK(err, "lookup") ||
++		    !ASSERT_EQ(v.count, skel->bss->estimate[i], "same estimate"))
++			break;
++	}
++out:
++	count_min_map__destroy(skel);
++}
++
++void test_count_min_map(void)
++{
++	if (test__start_subtest("fail_cases"))
++		test_fail_cases();
++	if (test__start_subtest("user_space"))
++		test_user_space();
++	if (test__start_subtest("program"))
++		test_program();
++	RUN_TESTS(count_min_map_verifier);
++}
+diff --git a/tools/testing/selftests/bpf/progs/count_min_map.c b/tools/testing/selftests/bpf/progs/count_min_map.c
+new file mode 100644
+index 000000000..74cd3fc05
+--- /dev/null
++++ b/tools/testing/selftests/bpf/progs/count_min_map.c
+@@ -0,0 +1,55 @@
++// SPDX-License-Identifier: GPL-2.0
++
++#include <linux/bpf.h>
++#include <bpf/bpf_helpers.h>
++#include "bpf_misc.h"
++
++char _license[] SEC("license") = "GPL";
++
++#define NR_KEYS 128
++
++struct cms_value {
++	__u64 key;
++	__u64 count;
++};
++
++struct {
++	__uint(type, BPF_MAP_TYPE_COUNT_MIN);
++	__type(value, struct cms_value);
++	__uint(max_entries, 1024);
++	__uint(map_extra, 4);
++	__uint(map_flags, BPF_F_ZERO_SEED);
++} cms SEC(".maps");
++
++__u64 estimate[NR_KEYS];
++int error;
++
++/* Adds count key + 1 to each key 0 .. NR_KEYS - 1, then reads the
++ * estimates back, so that user space can compare them with its own
++ * lookups and with the true counts.
++ */
++SEC("syscall")
++int add_and_query(void *ctx)
++{
++	struct cms_value v;
++	__u32 i;
++
++	for (i = 0; i < NR_KEYS; i++) {
++		v.key = i;
++		v.count = i + 1;
++		if (bpf_map_push_elem(&cms, &v, BPF_ANY))
++			error |= 1;
++	}
++	for (i = 0; i < NR_KEYS; i++) {
++		long est;
++
++		v.key = i;
++		v.count = 0;
++		est = bpf_map_peek_elem(&cms, &v);
++		if (est < 0)
++			error |= 2;
++		else
++			estimate[i] = est;
++	}
++	return 0;
++}
+diff --git a/tools/testing/selftests/bpf/progs/count_min_map_verifier.c b/tools/testing/selftests/bpf/progs/count_min_map_verifier.c
+new file mode 100644
+index 000000000..92e14be01
+--- /dev/null
++++ b/tools/testing/selftests/bpf/progs/count_min_map_verifier.c
+@@ -0,0 +1,63 @@
++// SPDX-License-Identifier: GPL-2.0
++
++#include <linux/bpf.h>
++#include <bpf/bpf_helpers.h>
++#include "bpf_misc.h"
++
++char _license[] SEC("license") = "GPL";
++
++struct cms_value {
++	__u64 key;
++	__u64 count;
++};
++
++struct {
++	__uint(type, BPF_MAP_TYPE_COUNT_MIN);
++	__type(value, struct cms_value);
++	__uint(max_entries, 1024);
++} cms SEC(".maps");
++
++/* The key of a lookup has the map's key_size, 0 */
++SEC("syscall")
++__failure __msg("invalid zero-sized read")
++int lookup_refused(void *ctx)
++{
++	struct cms_value v = {};
++
++	bpf_map_lookup_elem(&cms, &v);
++	return 0;
++}
++
++/* Only push and peek are allowed on a count-min sketch */
++SEC("syscall")
++__failure __msg("cannot pass map_type 36 into func bpf_map_pop_elem")
++int pop_refused(void *ctx)
++{
++	struct cms_value v;
++
++	return bpf_map_pop_elem(&cms, &v);
++}
++
++/* push reads value_size bytes: a key alone is too short */
++SEC("syscall")
++__failure __msg("invalid read from stack")
++int push_short_value(void *ctx)
++{
++	__u64 key = 1;
++
++	return bpf_map_push_elem(&cms, &key, BPF_ANY);
++}
++
++/* peek reads the key it is given, after a push of the same value too */
++SEC("raw_tp")
++__success
++int push_then_peek(void *ctx)
++{
++	struct cms_value v = { .count = 1 };
++
++	v.key = bpf_get_prandom_u32();
++	if (!v.key)
++		return 0;
++	bpf_map_push_elem(&cms, &v, BPF_ANY);
++	return bpf_map_peek_elem(&cms, &v) > 0;
++}
+-- 
+2.56.0
+

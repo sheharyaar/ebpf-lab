@@ -1,0 +1,436 @@
+From 336d98a1f23324f49654758cd9dcb21ceebcb5f0 Mon Sep 17 00:00:00 2001
+From: "A. Reader" <reader@example.com>
+Date: Fri, 13 Nov 2026 05:36:41 +0530
+Subject: [PATCH bpf-next 3/8] bpf: Add count-min sketch map type
+
+A count-min sketch counts any number of keys in memory fixed at
+creation: depth rows of width counters, one hash function per row. An
+update adds to one counter in each row and a query returns the smallest
+of the key's counters. The estimate is never below the true count, and
+with width = ceil(e / epsilon) and depth = ceil(ln(1 / delta)) it
+exceeds it by more than epsilon times the total of all counts with
+probability at most delta (Cormode and Muthukrishnan, 2005).
+
+A program that counts events per thread, flow or address in a hash map
+needs an entry per key; the map fills (-E2BIG) or, as an LRU hash,
+forgets keys. The sketch keeps an estimate for every key in
+8 * width * depth bytes.
+
+The map is keyless, like the bloom filter, and uses the same helpers:
+the value is the key's bytes followed by a u64 count, push adds the
+count to the key, and peek returns the key's estimate. From user space,
+BPF_MAP_UPDATE_ELEM pushes and BPF_MAP_LOOKUP_ELEM writes the estimate
+into the value's count. max_entries is the width and the lower 4 bits
+of map_extra the depth (default 5). Counters are updated with atomic
+adds: a key such as a thread ID is written from one CPU at a time, so
+two CPUs meet on a counter only when their keys collide in a row.
+
+Like a bloom filter peek, a count-min peek reads its value, which
+stack liveness must count as a read. The map is allowed in sleepable
+programs: push and peek touch only the
+map's counters.
+---
+ include/linux/bpf_types.h      |   1 +
+ include/uapi/linux/bpf.h       |   5 +
+ kernel/bpf/Makefile            |   2 +-
+ kernel/bpf/count_min.c         | 209 +++++++++++++++++++++++++++++++++
+ kernel/bpf/syscall.c           |  18 ++-
+ kernel/bpf/verifier.c          |   9 +-
+ tools/include/uapi/linux/bpf.h |   5 +
+ 7 files changed, 245 insertions(+), 4 deletions(-)
+ create mode 100644 kernel/bpf/count_min.c
+
+diff --git a/include/linux/bpf_types.h b/include/linux/bpf_types.h
+index e5906829a..91ceaff59 100644
+--- a/include/linux/bpf_types.h
++++ b/include/linux/bpf_types.h
+@@ -135,6 +135,7 @@ BPF_MAP_TYPE(BPF_MAP_TYPE_USER_RINGBUF, user_ringbuf_map_ops)
+ BPF_MAP_TYPE(BPF_MAP_TYPE_ARENA, arena_map_ops)
+ BPF_MAP_TYPE(BPF_MAP_TYPE_INSN_ARRAY, insn_array_map_ops)
+ BPF_MAP_TYPE(BPF_MAP_TYPE_RHASH, rhtab_map_ops)
++BPF_MAP_TYPE(BPF_MAP_TYPE_COUNT_MIN, count_min_map_ops)
+ 
+ BPF_LINK_TYPE(BPF_LINK_TYPE_RAW_TRACEPOINT, raw_tracepoint)
+ BPF_LINK_TYPE(BPF_LINK_TYPE_TRACING, tracing)
+diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
+index 89b36de5f..50ed1e6e5 100644
+--- a/include/uapi/linux/bpf.h
++++ b/include/uapi/linux/bpf.h
+@@ -1048,6 +1048,7 @@ enum bpf_map_type {
+ 	BPF_MAP_TYPE_ARENA,
+ 	BPF_MAP_TYPE_INSN_ARRAY,
+ 	BPF_MAP_TYPE_RHASH,
++	BPF_MAP_TYPE_COUNT_MIN,
+ 	__MAX_BPF_MAP_TYPE
+ };
+ 
+@@ -1559,6 +1560,10 @@ union bpf_attr {
+ 		 * (nelem_hint). 0 = use rhashtable default. Must be
+ 		 * <= min(max_entries, U16_MAX). Upper 32 bits reserved,
+ 		 * must be zero.
++		 *
++		 * BPF_MAP_TYPE_COUNT_MIN - the lowest 4 bits indicate the
++		 * depth, the number of rows of counters (if 0, the sketch
++		 * defaults to 5 rows).
+ 		 */
+ 		__u64	map_extra;
+ 
+diff --git a/kernel/bpf/Makefile b/kernel/bpf/Makefile
+index 4dc41bf57..d5bf635d1 100644
+--- a/kernel/bpf/Makefile
++++ b/kernel/bpf/Makefile
+@@ -8,7 +8,7 @@ CFLAGS_core.o += -Wno-override-init $(cflags-nogcse-yy)
+ 
+ obj-$(CONFIG_BPF_SYSCALL) += syscall.o verifier.o inode.o helpers.o tnum.o cnum.o log.o token.o liveness.o const_fold.o
+ obj-$(CONFIG_BPF_SYSCALL) += bpf_iter.o map_iter.o task_iter.o prog_iter.o link_iter.o
+-obj-$(CONFIG_BPF_SYSCALL) += hashtab.o arraymap.o percpu_freelist.o bpf_lru_list.o lpm_trie.o map_in_map.o bloom_filter.o
++obj-$(CONFIG_BPF_SYSCALL) += hashtab.o arraymap.o percpu_freelist.o bpf_lru_list.o lpm_trie.o map_in_map.o bloom_filter.o count_min.o
+ obj-$(CONFIG_BPF_SYSCALL) += local_storage.o queue_stack_maps.o ringbuf.o bpf_insn_array.o
+ obj-$(CONFIG_BPF_SYSCALL) += bpf_local_storage.o bpf_task_storage.o
+ obj-$(CONFIG_BPF_SYSCALL) += fixups.o cfg.o states.o backtrack.o check_btf.o
+diff --git a/kernel/bpf/count_min.c b/kernel/bpf/count_min.c
+new file mode 100644
+index 000000000..d3786c806
+--- /dev/null
++++ b/kernel/bpf/count_min.c
+@@ -0,0 +1,209 @@
++// SPDX-License-Identifier: GPL-2.0
++/* Count-min sketch map: approximate counts for any number of keys in
++ * memory fixed at creation.
++ *
++ * G. Cormode and S. Muthukrishnan, "An improved data stream summary: the
++ * count-min sketch and its applications", J. Algorithms 55(1), 2005.
++ *
++ * The sketch is depth rows of width counters, one hash function per row.
++ * Adding c to a key adds c to one counter in each row; the estimate for a
++ * key is the smallest of its depth counters. The estimate is never below
++ * the true count, and with width = ceil(e / eps) and depth =
++ * ceil(ln(1 / delta)) it exceeds it by more than eps times the total of
++ * all counts with probability at most delta.
++ *
++ * The map is keyless, like the bloom filter. A value is the key's bytes
++ * followed by a u64 count: push adds the count to the key's counters,
++ * peek returns the key's estimate, and a lookup from user space writes
++ * the estimate into the count.
++ */
++#include <linux/bpf.h>
++#include <linux/btf.h>
++#include <linux/btf_ids.h>
++#include <linux/err.h>
++#include <linux/jhash.h>
++#include <linux/random.h>
++#include <linux/unaligned.h>
++
++#define CMS_CREATE_FLAG_MASK \
++	(BPF_F_NUMA_NODE | BPF_F_ZERO_SEED | BPF_F_ACCESS_MASK)
++
++/* The lower 4 bits of map_extra hold the depth, the number of rows */
++#define CMS_DEPTH_MASK		0xF
++#define CMS_DEFAULT_DEPTH	5
++
++struct bpf_count_min {
++	struct bpf_map map;
++	u32 width;
++	u32 depth;
++	u32 key_size;
++	u32 hash_seed;
++	atomic64_t counters[];	/* depth rows of width counters */
++};
++
++static __always_inline u32 cms_slot(const struct bpf_count_min *cms,
++				    const void *key, u32 row)
++{
++	u32 h;
++
++	if (likely(cms->key_size % 4 == 0))
++		h = jhash2(key, cms->key_size / 4, cms->hash_seed + row);
++	else
++		h = jhash(key, cms->key_size, cms->hash_seed + row);
++
++	return row * cms->width + reciprocal_scale(h, cms->width);
++}
++
++static long cms_map_peek_elem(struct bpf_map *map, void *value)
++{
++	struct bpf_count_min *cms =
++		container_of(map, struct bpf_count_min, map);
++	u64 c, est = U64_MAX;
++	u32 i;
++
++	for (i = 0; i < cms->depth; i++) {
++		c = atomic64_read(&cms->counters[cms_slot(cms, value, i)]);
++		est = min(est, c);
++	}
++
++	return min_t(u64, est, LONG_MAX);
++}
++
++static long cms_map_push_elem(struct bpf_map *map, void *value, u64 flags)
++{
++	struct bpf_count_min *cms =
++		container_of(map, struct bpf_count_min, map);
++	u64 inc;
++	u32 i;
++
++	if (flags != BPF_ANY)
++		return -EINVAL;
++
++	inc = get_unaligned((u64 *)(value + cms->key_size));
++	for (i = 0; i < cms->depth; i++)
++		atomic64_add(inc, &cms->counters[cms_slot(cms, value, i)]);
++
++	return 0;
++}
++
++static long cms_map_pop_elem(struct bpf_map *map, void *value)
++{
++	return -EOPNOTSUPP;
++}
++
++static long cms_map_delete_elem(struct bpf_map *map, void *value)
++{
++	return -EOPNOTSUPP;
++}
++
++static int cms_map_get_next_key(struct bpf_map *map, void *key, void *next_key)
++{
++	return -EOPNOTSUPP;
++}
++
++/* Called from syscall */
++static int cms_map_alloc_check(union bpf_attr *attr)
++{
++	u32 depth = attr->map_extra & CMS_DEPTH_MASK ?: CMS_DEFAULT_DEPTH;
++	u32 nr_counters;
++
++	if (attr->key_size != 0 ||
++	    attr->value_size <= sizeof(u64) ||
++	    attr->max_entries == 0 ||
++	    attr->map_flags & ~CMS_CREATE_FLAG_MASK ||
++	    !bpf_map_flags_access_ok(attr->map_flags) ||
++	    attr->map_extra & ~(u64)CMS_DEPTH_MASK)
++		return -EINVAL;
++
++	/* user space must be able to copy a value in and out */
++	if (attr->value_size > KMALLOC_MAX_SIZE)
++		return -E2BIG;
++
++	/* max_entries is the width; every slot index must fit a u32 */
++	if (check_mul_overflow(attr->max_entries, depth, &nr_counters))
++		return -E2BIG;
++
++	return 0;
++}
++
++static struct bpf_map *cms_map_alloc(union bpf_attr *attr)
++{
++	u32 depth = attr->map_extra & CMS_DEPTH_MASK ?: CMS_DEFAULT_DEPTH;
++	int numa_node = bpf_map_attr_numa_node(attr);
++	struct bpf_count_min *cms;
++	u64 size;
++
++	size = struct_size_t(struct bpf_count_min, counters,
++			     (u64)attr->max_entries * depth);
++	cms = bpf_map_area_alloc(size, numa_node);
++	if (!cms)
++		return ERR_PTR(-ENOMEM);
++
++	bpf_map_init_from_attr(&cms->map, attr);
++
++	cms->width = attr->max_entries;
++	cms->depth = depth;
++	cms->key_size = attr->value_size - sizeof(u64);
++
++	if (!(attr->map_flags & BPF_F_ZERO_SEED))
++		cms->hash_seed = get_random_u32();
++
++	return &cms->map;
++}
++
++static void cms_map_free(struct bpf_map *map)
++{
++	struct bpf_count_min *cms =
++		container_of(map, struct bpf_count_min, map);
++
++	bpf_map_area_free(cms);
++}
++
++static void *cms_map_lookup_elem(struct bpf_map *map, void *key)
++{
++	/* The eBPF program should use map_peek_elem instead */
++	return ERR_PTR(-EINVAL);
++}
++
++static long cms_map_update_elem(struct bpf_map *map, void *key,
++				void *value, u64 flags)
++{
++	/* The eBPF program should use map_push_elem instead */
++	return -EINVAL;
++}
++
++static int cms_map_check_btf(struct bpf_map *map,
++			     const struct btf *btf,
++			     const struct btf_type *key_type,
++			     const struct btf_type *value_type)
++{
++	/* Count-min sketch maps are keyless */
++	return btf_type_is_void(key_type) ? 0 : -EINVAL;
++}
++
++static u64 cms_map_mem_usage(const struct bpf_map *map)
++{
++	struct bpf_count_min *cms =
++		container_of(map, struct bpf_count_min, map);
++
++	return struct_size_t(struct bpf_count_min, counters,
++			     (u64)cms->width * cms->depth);
++}
++
++BTF_ID_LIST_SINGLE(bpf_count_min_map_btf_ids, struct, bpf_count_min)
++const struct bpf_map_ops count_min_map_ops = {
++	.map_meta_equal = bpf_map_meta_equal,
++	.map_alloc_check = cms_map_alloc_check,
++	.map_alloc = cms_map_alloc,
++	.map_free = cms_map_free,
++	.map_get_next_key = cms_map_get_next_key,
++	.map_push_elem = cms_map_push_elem,
++	.map_peek_elem = cms_map_peek_elem,
++	.map_pop_elem = cms_map_pop_elem,
++	.map_lookup_elem = cms_map_lookup_elem,
++	.map_update_elem = cms_map_update_elem,
++	.map_delete_elem = cms_map_delete_elem,
++	.map_check_btf = cms_map_check_btf,
++	.map_mem_usage = cms_map_mem_usage,
++	.map_btf_id = &bpf_count_min_map_btf_ids[0],
++};
+diff --git a/kernel/bpf/syscall.c b/kernel/bpf/syscall.c
+index 6db306d23..6f76fb1bc 100644
+--- a/kernel/bpf/syscall.c
++++ b/kernel/bpf/syscall.c
+@@ -289,7 +289,8 @@ static int bpf_map_update_value(struct bpf_map *map, struct file *map_file,
+ 							 flags);
+ 	} else if (map->map_type == BPF_MAP_TYPE_QUEUE ||
+ 		   map->map_type == BPF_MAP_TYPE_STACK ||
+-		   map->map_type == BPF_MAP_TYPE_BLOOM_FILTER) {
++		   map->map_type == BPF_MAP_TYPE_BLOOM_FILTER ||
++		   map->map_type == BPF_MAP_TYPE_COUNT_MIN) {
+ 		err = map->ops->map_push_elem(map, value, flags);
+ 	} else {
+ 		err = bpf_obj_pin_uptrs(map->record, value);
+@@ -335,6 +336,12 @@ static int bpf_map_copy_value(struct bpf_map *map, void *key, void *value,
+ 		   map->map_type == BPF_MAP_TYPE_STACK ||
+ 		   map->map_type == BPF_MAP_TYPE_BLOOM_FILTER) {
+ 		err = map->ops->map_peek_elem(map, value);
++	} else if (map->map_type == BPF_MAP_TYPE_COUNT_MIN) {
++		/* the estimate goes into the count after the key */
++		u64 est = map->ops->map_peek_elem(map, value);
++
++		memcpy(value + map->value_size - sizeof(est), &est, sizeof(est));
++		err = 0;
+ 	} else if (map->map_type == BPF_MAP_TYPE_STRUCT_OPS) {
+ 		/* struct_ops map requires directly updating "value" */
+ 		err = bpf_struct_ops_map_sys_lookup_elem(map, key, value);
+@@ -1408,6 +1415,7 @@ static int map_create_alloc(union bpf_attr *attr, bpfptr_t uattr, struct bpf_ver
+ 	if (attr->map_type != BPF_MAP_TYPE_BLOOM_FILTER &&
+ 	    attr->map_type != BPF_MAP_TYPE_ARENA &&
+ 	    attr->map_type != BPF_MAP_TYPE_RHASH &&
++	    attr->map_type != BPF_MAP_TYPE_COUNT_MIN &&
+ 	    attr->map_extra != 0) {
+ 		bpf_log(log, "Invalid map_extra.\n");
+ 		return -EINVAL;
+@@ -1493,6 +1501,7 @@ static int map_create_alloc(union bpf_attr *attr, bpfptr_t uattr, struct bpf_ver
+ 	case BPF_MAP_TYPE_TASK_STORAGE:
+ 	case BPF_MAP_TYPE_CGRP_STORAGE:
+ 	case BPF_MAP_TYPE_BLOOM_FILTER:
++	case BPF_MAP_TYPE_COUNT_MIN:
+ 	case BPF_MAP_TYPE_LPM_TRIE:
+ 	case BPF_MAP_TYPE_REUSEPORT_SOCKARRAY:
+ 	case BPF_MAP_TYPE_STACK_TRACE:
+@@ -1821,6 +1830,13 @@ static int map_lookup_elem(union bpf_attr *attr)
+ 		goto free_value;
+ 	}
+ 
++	/* the value holds the key whose estimate the lookup returns */
++	if (map->map_type == BPF_MAP_TYPE_COUNT_MIN &&
++	    copy_from_user(value, uvalue, value_size)) {
++		err = -EFAULT;
++		goto free_value;
++	}
++
+ 	err = bpf_map_copy_value(map, key, value, attr->flags);
+ 	if (err)
+ 		goto free_value;
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index 9c404e655..3d53549c9 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -7707,6 +7707,7 @@ static int resolve_map_arg_type(struct bpf_verifier_env *env,
+ 		}
+ 		break;
+ 	case BPF_MAP_TYPE_BLOOM_FILTER:
++	case BPF_MAP_TYPE_COUNT_MIN:
+ 		if (meta->func_id == BPF_FUNC_map_peek_elem)
+ 			*arg_type = ARG_PTR_TO_MAP_VALUE;
+ 		break;
+@@ -8618,6 +8619,7 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
+ 			goto error;
+ 		break;
+ 	case BPF_MAP_TYPE_BLOOM_FILTER:
++	case BPF_MAP_TYPE_COUNT_MIN:
+ 		if (func_id != BPF_FUNC_map_peek_elem &&
+ 		    func_id != BPF_FUNC_map_push_elem)
+ 			goto error;
+@@ -8707,7 +8709,8 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
+ 	case BPF_FUNC_map_push_elem:
+ 		if (map->map_type != BPF_MAP_TYPE_QUEUE &&
+ 		    map->map_type != BPF_MAP_TYPE_STACK &&
+-		    map->map_type != BPF_MAP_TYPE_BLOOM_FILTER)
++		    map->map_type != BPF_MAP_TYPE_BLOOM_FILTER &&
++		    map->map_type != BPF_MAP_TYPE_COUNT_MIN)
+ 			goto error;
+ 		break;
+ 	case BPF_FUNC_map_lookup_percpu_elem:
+@@ -12595,7 +12598,8 @@ s64 bpf_helper_stack_access_bytes(struct bpf_verifier_env *env, struct bpf_insn
+ 			size = is_key ? map->key_size : map->value_size;
+ 			/* a bloom filter's peek reads the value it is given */
+ 			if (!is_key && insn->imm == BPF_FUNC_map_peek_elem &&
+-			    map->map_type == BPF_MAP_TYPE_BLOOM_FILTER)
++			    (map->map_type == BPF_MAP_TYPE_BLOOM_FILTER ||
++			     map->map_type == BPF_MAP_TYPE_COUNT_MIN))
+ 				return size;
+ 			goto out;
+ 		}
+@@ -17804,6 +17808,7 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
+ 		case BPF_MAP_TYPE_CGRP_STORAGE:
+ 		case BPF_MAP_TYPE_QUEUE:
+ 		case BPF_MAP_TYPE_STACK:
++		case BPF_MAP_TYPE_COUNT_MIN:
+ 		case BPF_MAP_TYPE_ARENA:
+ 		case BPF_MAP_TYPE_INSN_ARRAY:
+ 		case BPF_MAP_TYPE_PROG_ARRAY:
+diff --git a/tools/include/uapi/linux/bpf.h b/tools/include/uapi/linux/bpf.h
+index 89b36de5f..50ed1e6e5 100644
+--- a/tools/include/uapi/linux/bpf.h
++++ b/tools/include/uapi/linux/bpf.h
+@@ -1048,6 +1048,7 @@ enum bpf_map_type {
+ 	BPF_MAP_TYPE_ARENA,
+ 	BPF_MAP_TYPE_INSN_ARRAY,
+ 	BPF_MAP_TYPE_RHASH,
++	BPF_MAP_TYPE_COUNT_MIN,
+ 	__MAX_BPF_MAP_TYPE
+ };
+ 
+@@ -1559,6 +1560,10 @@ union bpf_attr {
+ 		 * (nelem_hint). 0 = use rhashtable default. Must be
+ 		 * <= min(max_entries, U16_MAX). Upper 32 bits reserved,
+ 		 * must be zero.
++		 *
++		 * BPF_MAP_TYPE_COUNT_MIN - the lowest 4 bits indicate the
++		 * depth, the number of rows of counters (if 0, the sketch
++		 * defaults to 5 rows).
+ 		 */
+ 		__u64	map_extra;
+ 
+-- 
+2.56.0
+
