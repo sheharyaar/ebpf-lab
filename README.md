@@ -1,4 +1,14 @@
-# eBPF for Systems Engineers
+# ebpf-lab
+
+Where I learn eBPF in depth. The repository holds two things side by side:
+
+- **The book**, *eBPF for Systems Engineers*, in [`book/`](book/): a 500-page
+  walk through eBPF on Linux, from the instruction set to the verifier's source
+  and the research that tries to prove it correct.
+- **The playground**: my own experiments and tinkering around eBPF, as they
+  come, each in its own folder at the top level.
+
+## The book: eBPF for Systems Engineers
 
 A book about eBPF on Linux, written for systems engineers. It follows one small
 program, a counter of `write()` calls, through every stage of its life: the
@@ -16,15 +26,11 @@ print layout) or [`book/ebpf-book.html`](book/ebpf-book.html) (the same book
 paged on screen; open it in a browser with network access, since it loads
 Paged.js and its fonts from a CDN).
 
-## Why this repository exists
+The book is the long-form record of the learning, written with the goal of being
+able to read, test and eventually change the kernel's BPF code. Its program,
+labs and kernel patches live in `book/` with it.
 
-The repository began as an eBPF playground of small libbpf exercises. Those were
-dropped for something deeper: a book that goes from the instruction set to the
-verifier's source, with the goal of being able to read, test and eventually
-change the kernel's BPF code. The book is the record of that learning, and its
-program, labs and kernel patches live here with it.
-
-## Contents
+### Contents
 
 - **Prologue**: 1993, a filter inside the kernel. **Primer**: registers and instructions.
 - **Part I, The program and its machine**: the instruction set and calls; from C
@@ -41,7 +47,7 @@ program, labs and kernel patches live here with it.
 - **Epilogue**, appendices (the lineage in commits, the answer key), glossary,
   references and index.
 
-## Layout
+### Layout
 
 | Path | What it is |
 |---|---|
@@ -55,7 +61,7 @@ program, labs and kernel patches live here with it.
 | `book/tools/` | The chapter-order tool, a numbering snapshot, and the briefs the chapter agents worked from |
 | `book/NOTES.md` | Plans, style rules and a dated log of every decision and audit |
 
-## Building
+### Building
 
 - **Screen edition**: `cd book && python3 -I build.py && python3 -I audit.py ebpf-book.html`.
   Needs Python 3 and `qrencode`.
@@ -67,12 +73,19 @@ program, labs and kernel patches live here with it.
   need root run in a throwaway VM with virtme-ng (`vng`), never on the host.
   The proof chapters use Z3: `python3 -m venv book/.venv && book/.venv/bin/pip install z3-solver`.
 
-## How it was written
+### How it was written
 
 Written by Mohammad Shehar Yaar Tausif with Claude, an AI model by Anthropic.
 Each chapter was planned figures first, checked against the Linux v7.2 source or
 a real run, audited by script, and looked at page by page in print.
 `book/NOTES.md` records every plan, decision and audit.
+
+## The playground
+
+Experiments, small programs and tinkering around eBPF that are not part of the
+book go here, one folder per experiment at the top level, each with a line in its
+own README on what it tries. As in the book's labs, anything that needs root
+runs in a throwaway VM (virtme-ng), never on the host.
 
 ## Licence
 
@@ -81,9 +94,9 @@ Copyright © 2026 Mohammad Shehar Yaar Tausif. Written with Claude, an AI model 
 - **The book's text and figures** (`book/src/`, `book/figs/out/`, `book/ebpf-book.html`,
   `book/ebpf-book-print.pdf`): Creative Commons Attribution-ShareAlike 4.0
   International, in [`book/LICENSE-CC-BY-SA-4.0.txt`](book/LICENSE-CC-BY-SA-4.0.txt).
-- **The code** (everything else: the build, audit and print tools, the figure
-  scripts, the labs, the program and the kernel patches): GNU General Public
-  License, version 2, in [`LICENSE`](LICENSE).
+- **The code** (everything else: the playground, and in the book the build,
+  audit and print tools, the figure scripts, the labs, the program and the
+  kernel patches): GNU General Public License, version 2, in [`LICENSE`](LICENSE).
 - **The fonts** in `book/tex/fonts/`: their own licences, beside them (SIL Open
   Font License 1.1 for Literata and JetBrains Mono, Ubuntu Font Licence 1.0 for
   Ubuntu Mono).

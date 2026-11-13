@@ -1,4 +1,4 @@
-You are fixing five small faults in the LaTeX print back end of a technical book, "eBPF for Systems Engineers" (/home/wazir/workspace/repos/eBPF-playground/book). The HTML in book/src/ is the source; tex/html2tex.py converts it, tex/ebpfbook.sty sets it in the O'Reilly format, tex/book.tex is the master. The main session will audit your work page by page, so report honestly what is not right yet.
+You are fixing five small faults in the LaTeX print back end of a technical book, "eBPF for Systems Engineers" (/home/wazir/workspace/repos/ebpf-lab/book). The HTML in book/src/ is the source; tex/html2tex.py converts it, tex/ebpfbook.sty sets it in the O'Reilly format, tex/book.tex is the master. The main session will audit your work page by page, so report honestly what is not right yet.
 
 ## Read first
 - tex/html2tex.py (a small DOM, one function per block kind), tex/ebpfbook.sty, tex/book.tex (its header comment: how to build the whole book or one chapter into a private directory with --out).
